@@ -1,9 +1,13 @@
-import os
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
 
-load_dotenv()
 
-class Settings:
-    PROJECT_NAME = os.getenv("PROJECT_NAME", "Secure Multi-Tenant Backend")
+class Settings(BaseSettings):
+    PROJECT_NAME: str
+    DATABASE_URL: str
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
 
 settings = Settings()
