@@ -1,9 +1,8 @@
-# app/models/refresh_token.py
+# app\models\refresh_token.py
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, DateTime, String
+from sqlalchemy import ForeignKey, String, Boolean, DateTime
 from app.core.database import Base
-from app.models.user import User
 
 
 class RefreshToken(Base):
@@ -19,7 +18,7 @@ class RefreshToken(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
+        ForeignKey("users.id"),
         nullable=False,
     )
 
@@ -28,9 +27,16 @@ class RefreshToken(Base):
         nullable=False,
     )
 
-    revoked_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
-        nullable=True,
+    revoked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
     )
 
-    user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    user = relationship("User", back_populates="refresh_tokens")
