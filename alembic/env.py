@@ -5,6 +5,8 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.core.database import Base
+from app.core.database import Base
+from app.models import user, refresh_token
 
 target_metadata = Base.metadata
 

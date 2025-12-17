@@ -1,8 +1,9 @@
-# app\models\refresh_token.py
+# app/models/refresh_token.py
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, String, Boolean, DateTime
+from sqlalchemy import ForeignKey, Boolean, DateTime, String
 from app.core.database import Base
+from app.models.user import User
 
 
 class RefreshToken(Base):
@@ -11,7 +12,7 @@ class RefreshToken(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
     token: Mapped[str] = mapped_column(
-        String,
+        String(64),
         unique=True,
         index=True,
         nullable=False,
@@ -39,4 +40,4 @@ class RefreshToken(Base):
         nullable=False,
     )
 
-    user = relationship("User", back_populates="refresh_tokens")
+    user: Mapped["User"] = relationship(back_populates="refresh_tokens")

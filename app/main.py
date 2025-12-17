@@ -1,7 +1,5 @@
-#app/main.py
-
+# app/main.py
 from fastapi import FastAPI
-
 from app.api.v1.auth import router as auth_router
 from app.api.v1.users import router as users_router
 
@@ -10,7 +8,6 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# API Routers
 app.include_router(auth_router)
 app.include_router(users_router)
 

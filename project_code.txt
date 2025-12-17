@@ -1,0 +1,422 @@
+
+
+# ===== File: app/main.py =====
+# app/main.py
+from fastapi import FastAPI
+from app.api.v1.auth import router as auth_router
+from app.api.v1.users import router as users_router
+
+app = FastAPI(
+    title="Secure Multi-Tenant Backend",
+    version="0.1.0",
+)
+
+app.include_router(auth_router)
+app.include_router(users_router)
+
+
+@app.get("/health", tags=["health"])
+def health_check():
+    return {"status": "ok"}
+
+
+# ===== File: app/core/config.py =====
+# app/core/config.py
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    project_name: str = "Secure Multi-Tenant Backend"
+
+    database_url: str = "sqlite:///./secure_backend.db"
+
+    secret_key: str = "super-secret-key-change-me"
+    algorithm: str = "HS256"
+
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
+
+settings = Settings()
+
+
+# ===== File: app/core/database.py =====
+# app/core/database.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from app.core.config import settings
+
+connect_args = {}
+if settings.database_url.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(
+    settings.database_url,
+    connect_args=connect_args,
+    echo=False,
+)
+
+SessionLocal = sessionmaker(
+    bind=engine,
+    autocommit=False,
+    autoflush=False,
+)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# ===== File: app/core/security.py =====
+# app/core/security.py
+from datetime import datetime, timedelta
+from jose import jwt
+from passlib.context import CryptContext
+from app.core.config import settings
+import uuid
+
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def create_access_token(subject: str) -> str:
+    now = datetime.utcnow()
+    payload = {
+        "sub": subject,
+        "iat": now,
+        "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
+    }
+
+    return jwt.encode(
+        payload,
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
+
+
+def create_refresh_token() -> tuple[str, datetime]:
+    token = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(days=settings.refresh_token_expire_days)
+    return token, expires_at
+
+
+# ===== File: app/models/user.py =====
+# app/models/user.py
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from typing import List, TYPE_CHECKING
+from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.refresh_token import RefreshToken
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(unique=True, index=True)
+    hashed_password: Mapped[str]
+
+    refresh_tokens: Mapped[List["RefreshToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+
+# ===== File: app/models/refresh_token.py =====
+# app/models/refresh_token.py
+from datetime import datetime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, Boolean, DateTime, String
+from app.core.database import Base
+from app.models.user import User
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    token: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+    )
+
+    revoked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+
+
+# ===== File: app/api/v1/auth.py =====
+# app/api/v1/auth.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+from datetime import datetime
+
+from app.core.database import get_db
+from app.core.security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+)
+from app.models.user import User
+from app.models.refresh_token import RefreshToken
+from app.schemas.user import UserCreate
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == user_in.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+
+    user = User(
+        email=user_in.email,
+        hashed_password=hash_password(user_in.password),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return {"id": user.id, "email": user.email}
+
+
+@router.post("/login", status_code=status.HTTP_200_OK)
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == form_data.username).first()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    access_token = create_access_token(subject=str(user.id))
+    refresh_token_value, expires_at = create_refresh_token()
+
+    refresh_token = RefreshToken(
+        token=refresh_token_value,
+        user_id=user.id,
+        expires_at=expires_at,
+    )
+    db.add(refresh_token)
+    db.commit()
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token_value,
+        "token_type": "bearer",
+    }
+
+
+@router.post("/refresh", status_code=status.HTTP_200_OK)
+def refresh_access_token(
+    refresh_token: str,
+    db: Session = Depends(get_db),
+):
+    token = db.query(RefreshToken).filter(RefreshToken.token == refresh_token).first()
+
+    if not token or token.revoked or token.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    # rotate refresh token
+    token.revoked = True
+
+    new_access_token = create_access_token(subject=str(token.user_id))
+    new_refresh_value, new_expires = create_refresh_token()
+
+    new_refresh = RefreshToken(
+        token=new_refresh_value,
+        user_id=token.user_id,
+        expires_at=new_expires,
+    )
+
+    db.add(new_refresh)
+    db.commit()
+
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_value,
+        "token_type": "bearer",
+    }
+
+
+# ===== File: app/api/v1/users.py =====
+from fastapi import APIRouter, Depends
+from app.core.deps import get_current_user
+from app.models.user import User
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/me")
+def read_current_user(
+    current_user: User = Depends(get_current_user),
+):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+    }
+
+
+# ===== File: app/schemas/user.py =====
+from pydantic import BaseModel, EmailStr
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+# ===== File: tests/test_auth_basic.py =====
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+client = TestClient(app)
+
+
+def test_register_success():
+    response = client.post(
+        "/auth/register",
+        json={
+            "email": "user1@example.com",
+            "password": "strongpassword123",
+        },
+    )
+
+    assert response.status_code == 201
+
+    data = response.json()
+    assert "id" in data
+    assert data["email"] == "user1@example.com"
+    assert "password" not in data
+    assert "hashed_password" not in data
+
+
+def test_register_duplicate_email():
+    payload = {
+        "email": "duplicate@example.com",
+        "password": "password123",
+    }
+
+    # first register
+    r1 = client.post("/auth/register", json=payload)
+    assert r1.status_code == 201
+
+    # duplicate register
+    r2 = client.post("/auth/register", json=payload)
+    assert r2.status_code == 400
+
+    body = r2.json()
+    assert body["detail"] == "Email already registered"
+
+
+def test_login_success():
+    email = "login@example.com"
+    password = "password123"
+
+    # register first
+    r = client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+    assert r.status_code == 201
+
+    # login
+    response = client.post(
+        "/auth/login",
+        data={
+            "username": email,
+            "password": password,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+    assert "access_token" in data
+    assert data["token_type"] == "bearer"
+
+    # refresh token must NOT exist in this stage
+    assert "refresh_token" not in data
+
+
+def test_login_invalid_credentials():
+    response = client.post(
+        "/auth/login",
+        data={
+            "username": "notfound@example.com",
+            "password": "wrongpassword",
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+
+    assert response.status_code == 401
+
+    body = response.json()
+    assert body["detail"] == "Invalid credentials"
+
+
+# ===== File: tests/test_auth_flow.py (NOT FOUND) =====
+
+
+# ===== File: tests/test_refresh_flow.py (NOT FOUND) =====
