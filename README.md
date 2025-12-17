@@ -66,3 +66,106 @@ Current focus:
 
 ## Project Structure (Relevant Parts)
 
+```
+app/
+├── main.py
+├── core/
+│   ├── config.py
+│   ├── database.py
+│   └── security.py
+│
+├── models/
+│   ├── user.py
+│   └── refresh_token.py
+│
+├── api/
+│   └── v1/
+│       ├── auth.py
+│       └── users.py
+│
+├── schemas/
+│   └── user.py
+│
+tests/
+├── test_auth_basic.py
+├── test_auth_flow.py
+└── test_refresh_flow.py
+```
+
+---
+
+## Authentication Design
+
+### Access Token
+- JWT
+- Short-lived
+- Used for API authorization
+- Contains:
+  - `sub` (user id)
+  - `iat`
+  - `exp`
+
+### Refresh Token
+- Random UUID
+- Stored in database
+- Linked to user
+- Has explicit expiration
+- Can be revoked
+- Used only to mint new access tokens
+
+---
+
+## Database Migrations
+
+- Alembic is **mandatory**
+- Every model change → migration
+- `alembic upgrade head` before running the app
+- No manual DB edits
+
+---
+
+## Development Workflow
+
+```bash
+source venv/bin/activate
+alembic upgrade head
+uvicorn app.main:app --reload
+pytest -q
+```
+
+---
+
+## Current Milestones
+
+### Phase 1 (Now)
+- [x] User model
+- [x] Password hashing
+- [x] Access token creation
+- [ ] Refresh token lifecycle
+- [ ] /auth/refresh endpoint
+- [ ] Green auth tests
+- [ ] Clean Alembic migrations
+
+### Phase 2 (Next)
+- Multi-tenant schema
+- Role-based authorization
+- Token scopes
+- Audit logging
+
+---
+
+## Philosophy
+
+This project prioritizes:
+- Correctness over shortcuts
+- Explicit lifecycle management
+- Production-grade practices
+- Clean, reviewable commits
+
+No hidden behavior. No magic.
+
+---
+
+## License
+
+MIT
