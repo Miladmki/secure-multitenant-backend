@@ -60,7 +60,7 @@ def create_user_with_roles(db: Session, tenant: Tenant, roles: list[str] | None 
 
     if roles:
         for rname in roles:
-            role = db.query(Role).filter(Role.name == rname).first()
+            role = db.query(Role).filter(Role.name == rname, Role.tenant_id == tenant.id).first()
             if not role:
                 role = Role(name=rname)
                 db.add(role)

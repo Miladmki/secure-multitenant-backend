@@ -1,62 +1,67 @@
-# app/core/deps.py
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
 from sqlalchemy.orm import Session
-from app.core.config import settings
+from jose import JWTError, jwt
+
 from app.core.database import get_db
+from app.models import tenant
 from app.models.user import User
+from app.models.tenant import Tenant
+from app.core.config import settings  # فرض: secret و algorithm اینجا تعریف شده
 
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# -------------------------
+# User dependency
+# -------------------------
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
+    token: str = Depends(
+        settings.oauth2_scheme
+    ),  # فرض: OAuth2PasswordBearer در settings تعریف شده
 ) -> User:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
+    """
+    کاربر جاری را از روی JWT توکن resolve می‌کند.
+    """
     try:
         payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        subject = payload.get("sub")
-        if subject is None:
-            raise credentials_exception
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+            )
     except JWTError:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
 
-    user = db.query(User).filter(User.id == int(subject)).first()
+    user = db.query(User).filter(User.id == int(user_id), User.tenant_id == tenant.id).first()
     if not user:
-        raise credentials_exception
-
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
     return user
 
 
-def require_role(required: str):
-    def role_dependency(
-        current_user: User = Depends(get_current_user),
-        db: Session = Depends(get_db),
-    ):
-        # deny-by-default
-        if not current_user.roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: no roles assigned",
-            )
+# -------------------------
+# Tenant dependency
+# -------------------------
 
-        # check if user has the required role
-        if not any(role.name == required for role in current_user.roles):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied: requires role '{required}'",
-            )
 
-        return current_user
-
-    return role_dependency
+def get_current_tenant(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Tenant:
+    """
+    Tenant را از user جاری resolve می‌کند و در request context inject می‌کند.
+    - tenant_id از relation کاربر گرفته می‌شود.
+    - اگر tenant وجود نداشت یا mismatch بود → 403.
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant not found or mismatch",
+        )
+    return tenant

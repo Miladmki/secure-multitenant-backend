@@ -6,6 +6,7 @@ from collections.abc import Generator
 
 from app.main import app
 from app.core.database import get_db, Base
+from app.models import tenant
 from app.models.user import User
 from app.models.role import Role
 from app.core.security import create_access_token
@@ -46,7 +47,7 @@ def create_user_with_role(db: Session, role_name: str | None):
     db.refresh(user)
 
     if role_name:
-        role = db.query(Role).filter(Role.name == role_name).first()
+        role = db.query(Role).filter(Role.name == role_name, Role.tenant_id == tenant.id).first()
         if not role:
             role = Role(name=role_name)
             db.add(role)

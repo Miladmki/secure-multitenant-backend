@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.deps import get_current_tenant
+from app.models import tenant
 from app.models.user import User
 from app.models.tenant import Tenant
 from app.models.refresh_token import RefreshToken
@@ -20,18 +22,21 @@ router = APIRouter()
 
 
 @router.post("/auth/register", response_model=UserPublic, status_code=201)
-def register(user_in: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == user_in.email).first()
+def register(
+    user_in: UserCreate,
+    db: Session = Depends(get_db),
+    tenant: Tenant = Depends(get_current_tenant),
+):
+    # بررسی وجود کاربر در tenant جاری
+    existing = (
+        db.query(User)
+        .filter(User.email == user_in.email, User.tenant_id == tenant.id)
+        .first()
+    )
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    tenant = db.query(Tenant).first()
-    if not tenant:
-        tenant = Tenant(name="default")
-        db.add(tenant)
-        db.commit()
-        db.refresh(tenant)
-
+    # ایجاد کاربر جدید در tenant جاری
     user = User(
         email=user_in.email,
         hashed_password=hash_password(user_in.password),
@@ -63,7 +68,9 @@ async def login(request: Request, db: Session = Depends(get_db)):
             status_code=422, detail="email/username and password are required"
         )
 
-    user = db.query(User).filter(User.email == email).first()
+    user = (
+        db.query(User).filter(User.email == email, User.tenant_id == tenant.id).first()
+    )
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -87,11 +94,19 @@ def refresh_token_endpoint(payload: dict, db: Session = Depends(get_db)):
     if not token:
         raise HTTPException(status_code=422, detail="refresh_token is required")
 
-    stored = db.query(RefreshToken).filter(RefreshToken.token == token).first()
+    stored = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token == token, RefreshToken.tenant_id == tenant.id)
+        .first()
+    )
     if not stored:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user = db.query(User).filter(User.id == stored.user_id).first()
+    user = (
+        db.query(User)
+        .filter(User.id == stored.user_id, User.tenant_id == tenant.id)
+        .first()
+    )
     if not user:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
@@ -120,7 +135,11 @@ def logout(payload: dict, db: Session = Depends(get_db)):
     if not token:
         raise HTTPException(status_code=422, detail="refresh_token is required")
 
-    stored = db.query(RefreshToken).filter(RefreshToken.token == token).first()
+    stored = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token == token, RefreshToken.tenant_id == tenant.id)
+        .first()
+    )
     if stored:
         db.delete(stored)
         db.commit()

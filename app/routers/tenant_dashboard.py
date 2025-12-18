@@ -1,28 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.core.deps import get_current_user, get_db, require_role
+from app.core.database import get_db
+from app.core.deps import get_current_user, get_current_tenant
 from app.models.user import User
 from app.models.tenant import Tenant
 
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 
-@router.get("/{tenant_id}/dashboard")
+@router.get("/dashboard")
 def tenant_dashboard(
-    tenant_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    tenant: Tenant = Depends(get_current_tenant),
 ):
-    # بررسی tenant isolation
-    if current_user.tenant_id != tenant_id:
-        raise HTTPException(status_code=403, detail="Forbidden: tenant mismatch")
-
-    # بررسی نقش admin
+    # فقط نقش admin مجاز است
     if not any(role.name == "admin" for role in current_user.roles):
-        raise HTTPException(status_code=403, detail="Forbidden: role mismatch")
-
-    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    if not tenant:
-        raise HTTPException(status_code=404, detail="Tenant not found")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: role mismatch",
+        )
 
     return {"msg": f"Welcome admin to tenant {tenant.name} dashboard"}

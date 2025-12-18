@@ -31,6 +31,7 @@ import_module("app.models.tenant")
 import_module("app.models.refresh_token")
 
 # import tenant model for default tenant creation
+from app.core.deps import get_current_tenant
 import app.models.tenant as tenant_model
 
 TEST_DB_URL = "sqlite:///./test.db"
