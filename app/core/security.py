@@ -29,6 +29,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 # JWT helpers
 # -------------------------
 def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Create a short-lived access token (default 30 minutes).
+    """
     to_encode = {"sub": subject}
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=30))
     to_encode.update({"exp": expire})
@@ -36,6 +39,9 @@ def create_access_token(subject: str, expires_delta: Optional[timedelta] = None)
 
 
 def create_refresh_token(subject: str) -> str:
+    """
+    Create a long-lived refresh token with unique jti.
+    """
     to_encode = {"sub": subject, "type": "refresh", "jti": str(uuid.uuid4())}
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
@@ -43,6 +49,7 @@ def create_refresh_token(subject: str) -> str:
 def decode_token(token: str) -> dict:
     """
     Decode JWT token and return payload.
+    Raises ValueError if token is invalid.
     """
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
