@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, List
-from sqlalchemy import String, DateTime, ForeignKey
+from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,17 +17,16 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
-    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # DB-level default to avoid NOT NULL add-column issues
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
 
-    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="users")
 
     refresh_tokens: Mapped[List["RefreshToken"]] = relationship(
@@ -38,4 +37,13 @@ class User(Base):
 
     roles: Mapped[List["Role"]] = relationship(
         "Role", secondary=user_roles, back_populates="users"
+    )
+
+    # فیلدهای اختیاری نمونه
+    phone: Mapped[str] = mapped_column(String(20), nullable=True)
+    profile: Mapped[str] = mapped_column(String(255), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("email", "tenant_id", name="uq_users_email_tenant"),
+        Index("ix_users_tenant_id", "tenant_id"),
     )

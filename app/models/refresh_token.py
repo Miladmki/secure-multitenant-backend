@@ -1,9 +1,9 @@
-# app/models/refresh_token.py
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, Boolean, DateTime, String
+from sqlalchemy import ForeignKey, Boolean, DateTime, String, Index, UniqueConstraint
 from app.core.database import Base
 from app.models.user import User
+from app.models.tenant import Tenant
 
 
 class RefreshToken(Base):
@@ -19,8 +19,15 @@ class RefreshToken(Base):
     )
 
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id"),
+        ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     expires_at: Mapped[datetime] = mapped_column(
@@ -41,3 +48,10 @@ class RefreshToken(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="refresh_tokens")
+    tenant: Mapped["Tenant"] = relationship(back_populates="refresh_tokens")
+
+    __table_args__ = (
+        UniqueConstraint("token", name="uq_refresh_token_token"),
+        Index("ix_refresh_token_user_id", "user_id"),
+        Index("ix_refresh_token_tenant_id", "tenant_id"),
+    )
