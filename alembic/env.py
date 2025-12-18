@@ -2,29 +2,20 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# -------------------------------------------------
 # Alembic Config
-# -------------------------------------------------
-config = context.config  # 👈 اول تعریف کن
-
+config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# -------------------------------------------------
-# Import Base (تنها Base پروژه)
-# -------------------------------------------------
+# Import Base
 from app.core.database import Base
 
-# -------------------------------------------------
-# Import ALL models explicitly (خیلی مهم)
-# -------------------------------------------------
+# Import ALL models
 import app.models.user
 import app.models.tenant
 import app.models.refresh_token
 
-# -------------------------------------------------
-# Target metadata for autogenerate
-# -------------------------------------------------
+# Target metadata
 target_metadata = Base.metadata
 
 
@@ -44,7 +35,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
