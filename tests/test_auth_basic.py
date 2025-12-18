@@ -1,11 +1,7 @@
 # app/api/v1/tests/test_auth_basic.py
-from fastapi.testclient import TestClient
-from app.main import app
-
-client = TestClient(app)
 
 
-def test_register_success():
+def test_register_success(client):
     response = client.post(
         "/auth/register",
         json={
@@ -21,7 +17,7 @@ def test_register_success():
     assert "hashed_password" not in data
 
 
-def test_register_duplicate_email():
+def test_register_duplicate_email(client):
     payload = {
         "email": "duplicate@example.com",
         "password": "password123",
@@ -35,7 +31,7 @@ def test_register_duplicate_email():
     assert body["detail"] == "Email already registered"
 
 
-def test_login_success_oauth2_form():
+def test_login_success_oauth2_form(client):
     email = "login_form@example.com"
     password = "password123"
 
@@ -56,7 +52,7 @@ def test_login_success_oauth2_form():
     assert data["token_type"] == "bearer"
 
 
-def test_login_success_json_body():
+def test_login_success_json_body(client):
     email = "login_json@example.com"
     password = "password123"
 
@@ -73,7 +69,7 @@ def test_login_success_json_body():
     assert data["token_type"] == "bearer"
 
 
-def test_login_invalid_credentials():
+def test_login_invalid_credentials(client):
     response = client.post(
         "/auth/login",
         data={"username": "notfound@example.com", "password": "wrongpassword"},

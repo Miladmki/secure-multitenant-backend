@@ -1,11 +1,6 @@
 # tests/test_users_me.py
-from fastapi.testclient import TestClient
-from app.main import app
 
-client = TestClient(app)
-
-
-def test_me_authenticated():
+def test_me_authenticated(client):
     email = "meuser@example.com"
     password = "meuserpass123"
 
@@ -31,7 +26,7 @@ def test_me_authenticated():
     assert "id" in body
 
 
-def test_me_unauthenticated():
+def test_me_unauthenticated(client):
     me = client.get("/users/me")
     assert me.status_code == 401
     assert me.json()["detail"] in (

@@ -1,11 +1,6 @@
-# app/api/v1/tests/test_refresh_flow.py
-from fastapi.testclient import TestClient
-from app.main import app
+# tests/test_refresh_flow.py
 
-client = TestClient(app)
-
-
-def test_refresh_flow_success_and_rotation():
+def test_refresh_flow_success_and_rotation(client):
     email = "flow@example.com"
     password = "pass123456"
 
@@ -45,7 +40,7 @@ def test_refresh_flow_success_and_rotation():
     assert "refresh_token" in refreshed_2
 
 
-def test_refresh_invalid_token():
+def test_refresh_invalid_token(client):
     resp = client.post("/auth/refresh", json={"refresh_token": "non-existent-token"})
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid or expired refresh token"

@@ -1,3 +1,4 @@
+# tests/test_auth_failures.py
 from jose import jwt
 from app.core.config import settings
 

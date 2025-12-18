@@ -1,11 +1,6 @@
-# tests/test_auth_flow.py (جدید)
-from fastapi.testclient import TestClient
-from app.main import app
+# tests/test_auth_flow.py
 
-client = TestClient(app)
-
-
-def test_login_json_payload():
+def test_login_json_payload(client):
     email = "jsonlogin@example.com"
     password = "strongjsonpass"
 

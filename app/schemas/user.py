@@ -1,5 +1,7 @@
 # app/schemas/user.py
 from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr
+from pydantic.config import ConfigDict
 
 
 class UserCreate(BaseModel):
@@ -7,10 +9,7 @@ class UserCreate(BaseModel):
     password: str
 
 
-class UserLogin(BaseModel):
+class UserPublic(BaseModel):
+    id: int
     email: EmailStr
-    password: str
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
+    model_config = ConfigDict(from_attributes=True)
