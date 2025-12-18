@@ -1,4 +1,4 @@
-# app/core/config.py
+from fastapi.security import OAuth2PasswordBearer
 from pydantic_settings import BaseSettings
 
 
@@ -15,3 +15,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# تعریف جداگانه برای OAuth2PasswordBearer (بیرون از کلاس Settings)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")

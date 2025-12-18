@@ -1,14 +1,43 @@
 import pytest
+import uuid
 from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.models.user import User, Tenant
+from app.core.database import get_db, Base, engine
+
+from app.models.user import User
+from app.models.tenant import Tenant
 
 # -------------------------
-# Helper برای ساخت داده تست
+# ایزوله کردن دیتابیس بین تست‌ها
 # -------------------------
 
 
-def create_tenant(db: Session, name: str) -> Tenant:
+@pytest.fixture(autouse=True)
+def reset_db():
+    # drop & create برای شروع تست
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    yield
+    # teardown (اختیاری)
+    Base.metadata.drop_all(bind=engine)
+
+
+# -------------------------
+# Helper ها برای داده تست
+# -------------------------
+
+
+def unique_email(base_local: str = "user", domain: str = "example.com") -> str:
+    suffix = uuid.uuid4().hex[:6]
+    return f"{base_local}_{suffix}@{domain}"
+
+
+def create_tenant(db: Session, name: str = None) -> Tenant:
+    if name is None:
+        # تولید نام یکتا برای جلوگیری از خطای UNIQUE
+        name = f"tenant_{uuid.uuid4().hex[:6]}"
+    else:
+        # اگر اسم ثابت داده شد، suffix تصادفی اضافه کن تا همیشه یکتا باشد
+        name = f"{name}_{uuid.uuid4().hex[:6]}"
     tenant = Tenant(name=name)
     db.add(tenant)
     db.commit()
@@ -17,7 +46,10 @@ def create_tenant(db: Session, name: str) -> Tenant:
 
 
 def create_user(db: Session, email: str, tenant: Tenant) -> User:
-    user = User(email=email, hashed_password="fakehashed", tenant_id=tenant.id)
+    # حتی اگر ایمیل ثابت پاس داده شود، آن را یکتا می‌کنیم
+    local, domain = email.split("@")
+    email_unique = unique_email(local, domain)
+    user = User(email=email_unique, hashed_password="fakehashed", tenant_id=tenant.id)
     db.add(user)
     db.commit()
     db.refresh(user)
