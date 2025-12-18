@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_tenant
-from app.models.user import User
 from app.models.tenant import Tenant
+from app.services import users_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -12,58 +12,46 @@ router = APIRouter(prefix="/users", tags=["users"])
 # -------------------------
 # لیست کاربران tenant جاری
 # -------------------------
-@router.get("/")
-def list_users(
+@router.get("/", status_code=200)
+def list_users_endpoint(
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_current_tenant),
 ):
-    users = db.query(User).filter(User.tenant_id == tenant.id).all()
-    return users
+    return users_service.list_users(db, tenant.id)
 
 
 # -------------------------
 # آپدیت کاربر در tenant جاری
 # -------------------------
-@router.put("/{user_id}")
-def update_user(
+@router.put("/{user_id}", status_code=200)
+def update_user_endpoint(
     user_id: int,
     email: str,
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_current_tenant),
 ):
-    user = (
-        db.query(User).filter(User.id == user_id, User.tenant_id == tenant.id).first()
-    )
-    if not user:
+    updated = users_service.update_user_email(db, user_id, tenant.id, email)
+    if not updated:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User not found in current tenant",
+            detail="Forbidden",
         )
-
-    user.email = email
-    db.commit()
-    db.refresh(user)
-    return user
+    return updated
 
 
 # -------------------------
 # حذف کاربر در tenant جاری
 # -------------------------
-@router.delete("/{user_id}")
-def delete_user(
+@router.delete("/{user_id}", status_code=200)
+def delete_user_endpoint(
     user_id: int,
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_current_tenant),
 ):
-    user = (
-        db.query(User).filter(User.id == user_id, User.tenant_id == tenant.id).first()
-    )
-    if not user:
+    ok = users_service.delete_user(db, user_id, tenant.id)
+    if not ok:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User not found in current tenant",
+            detail="Forbidden",
         )
-
-    db.delete(user)
-    db.commit()
     return {"msg": "User deleted"}
