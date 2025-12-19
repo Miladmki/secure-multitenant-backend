@@ -1,171 +1,216 @@
 # Secure Multi-Tenant Backend
 
-A **production-oriented FastAPI backend** focused on **secure authentication**, **token lifecycle management**, and **multi-tenant readiness**.
+A **production-grade backend architecture** built with FastAPI, focused on **security-first design**, **multi-tenant isolation**, and **explicit authorization boundaries**.
 
-This project is intentionally built step-by-step with **real-world constraints**:
-schema migrations, token rotation, test-driven fixes, and clean commits.
-
----
-
-## Project Status
-
-**Phase 1 – Authentication & Security Foundation (In Progress)**
-
-Current focus:
-- User authentication
-- JWT access tokens
-- Refresh token lifecycle
-- Database schema stability via Alembic
-- Automated tests (pytest)
+This project is intentionally developed as a **real-world reference backend**, emphasizing correctness, clarity, and long-term maintainability over shortcuts.
 
 ---
 
-## Core Objectives
+## 🚦 Project Status
 
-### 1. Secure Authentication (Current Phase)
-- Email + password login
-- Strong password hashing (Argon2)
-- JWT access tokens (short-lived)
-- Refresh tokens (long-lived, revocable)
-- Explicit token lifecycle (create, store, expire, revoke)
+**Phase 2 — Multi-Tenant Architecture & Authorization (In Progress)**
 
-### 2. Database Stability
-- SQLAlchemy ORM (Declarative Base)
-- Alembic migrations for **every schema change**
-- No manual schema edits
-- SQLite for development/testing
-- PostgreSQL planned for production
+### Completed
+- ✅ Multi-tenant schema  
+- ✅ Tenant-aware user model  
+- ✅ Role model + `user_roles` (many-to-many)  
+- ✅ Tenant isolation groundwork  
+- ✅ Architecture stabilization (layers, imports, dependencies)  
+- ✅ Error handling strategy  
+- ✅ Clean Alembic migrations (baseline schema)  
 
-### 3. Test-Driven Backend
-- Pytest-based integration tests
-- Auth flows tested end-to-end
-- Refresh token flow validated by tests
-- Green test suite required before moving phases
+### In Progress
+- ⏳ Permission enforcement layer  
+- ⏳ Tenant-scoped queries everywhere  
+- ⏳ Role-based access control in routers  
+- ⏳ Admin-only endpoints  
 
-### 4. Multi-Tenant Readiness (Next Phases)
-- Tenant-aware user model
-- Scoped access tokens
+---
+
+## 🎯 Core Objectives
+
+- **Secure Authentication**
+  - Password hashing (Argon2)
+  - JWT access tokens
+  - Refresh token lifecycle
+
+- **Multi-Tenant Architecture**
+  - Strong tenant boundaries
+  - No cross-tenant data leakage
+  - Tenant-aware queries by design
+
+- **Authorization & Access Control**
+  - Role-based authorization model
+  - Deny-by-default policy
+  - Explicit permission checks
+
+- **Architecture Discipline**
+  - Clear layer boundaries
+  - Dependency-driven security
+  - No hidden coupling
+
+- **Operational Stability**
+  - Reproducible database state
+  - Migration discipline
+  - Testable from zero state
+
+---
+
+## 🧱 Tech Stack
+
+- **Framework**: FastAPI
+- **Language**: Python 3.11+
+- **ORM**: SQLAlchemy 2.0
+- **Migrations**: Alembic (batch-mode, SQLite-safe)
+- **Auth**: JWT (access + refresh tokens)
+- **Security**: Argon2, OAuth2 password flow
+- **Database**: SQLite (dev), PostgreSQL (planned)
+- **Testing**: Pytest
+
+### Architectural Capabilities
+- Multi-tenant schema
 - Role-based authorization
-- Tenant isolation at query level
+- Tenant-aware refresh tokens
+- Custom error-handling strategy
+- Clean migration discipline
 
 ---
 
-## Tech Stack
-
-- **Framework:** FastAPI
-- **ORM:** SQLAlchemy 2.0
-- **Migrations:** Alembic
-- **Auth:** JWT (python-jose)
-- **Password Hashing:** Argon2 (passlib)
-- **Database (dev/test):** SQLite
-- **Database (prod):** PostgreSQL (planned)
-- **Testing:** Pytest
-- **Containerization:** Docker (planned)
-
----
-
-## Project Structure (Relevant Parts)
+## 🗂 Project Structure
 
 ```
 app/
-├── main.py
-├── core/
-│   ├── config.py
-│   ├── database.py
-│   └── security.py
-│
-├── models/
-│   ├── user.py
-│   └── refresh_token.py
-│
 ├── api/
 │   └── v1/
 │       ├── auth.py
-│       └── users.py
+│       ├── users.py
+│       └── admin.py
+│
+├── core/
+│   ├── config.py
+│   ├── database.py
+│   ├── security.py
+│   ├── deps.py
+│   └── errors.py   # planned
+│
+├── models/
+│   ├── user.py
+│   ├── tenant.py
+│   ├── role.py
+│   ├── user_role.py
+│   └── refresh_token.py
 │
 ├── schemas/
 │   └── user.py
 │
-tests/
-├── test_auth_basic.py
-├── test_auth_flow.py
-└── test_refresh_flow.py
+├── main.py
+│
+docs/
+├── error-handling.md
+├── tenant-isolation.md
+└── architecture.md  # planned
 ```
 
 ---
 
-## Authentication Design
+## 🔐 Authentication & Authorization Design
 
-### Access Token
-- JWT
-- Short-lived
-- Used for API authorization
-- Contains:
-  - `sub` (user id)
-  - `iat`
-  - `exp`
+### Authentication
+- OAuth2 password flow
+- JWT access tokens
+- Refresh tokens with rotation support
 
-### Refresh Token
-- Random UUID
-- Stored in database
-- Linked to user
-- Has explicit expiration
-- Can be revoked
-- Used only to mint new access tokens
+### Tenant-Aware Authentication
+- Each user belongs to **exactly one tenant**
+- Access tokens are implicitly tied to the user's tenant
+- Refresh tokens are scoped per user & tenant
+- Tenant isolation enforced in the dependency layer
 
----
-
-## Database Migrations
-
-- Alembic is **mandatory**
-- Every model change → migration
-- `alembic upgrade head` before running the app
-- No manual DB edits
+### Authorization
+- Role-based access control
+- Many-to-many relationship between users and roles
+- `require_role(...)` dependency for enforcement
+- Deny-by-default: no role = no access
 
 ---
 
-## Development Workflow
+## 🧬 Database & Migrations
 
-```bash
-source venv/bin/activate
+Alembic is **mandatory**.
+
+### Migration Rules
+- Batch-mode migrations (SQLite-safe)
+- Full schema rebuild tested from zero
+- No manual database edits
+- All schema changes go through migrations
+- Foreign keys explicitly indexed
+
+### Recreate Database (Development)
+```
+rm data/secure_backend.db
 alembic upgrade head
+```
+
+---
+
+## 🧪 Development Workflow
+
+### Run Application
+```
 uvicorn app.main:app --reload
+```
+
+### Run Tests
+```
 pytest -q
 ```
 
 ---
 
-## Current Milestones
+## 📌 Milestones
 
-### Phase 1 (Now)
+### ✅ Phase 1 — Authentication (Completed)
 - [x] User model
 - [x] Password hashing
-- [x] Access token creation
-- [ ] Refresh token lifecycle
-- [ ] /auth/refresh endpoint
-- [ ] Green auth tests
-- [ ] Clean Alembic migrations
+- [x] Access token
+- [x] Refresh token model
+- [x] Alembic migrations
+- [x] Database sync
+- [x] Test suite green
 
-### Phase 2 (Next)
-- Multi-tenant schema
-- Role-based authorization
-- Token scopes
-- Audit logging
-
----
-
-## Philosophy
-
-This project prioritizes:
-- Correctness over shortcuts
-- Explicit lifecycle management
-- Production-grade practices
-- Clean, reviewable commits
-
-No hidden behavior. No magic.
+### 🚧 Phase 2 — Multi-Tenant Architecture (In Progress)
+- [x] Tenant model
+- [x] Role model
+- [x] UserRoles
+- [x] Tenant-aware refresh tokens
+- [x] Architecture stabilization
+- [x] Error handling strategy
+- [ ] Permission enforcement layer
+- [ ] Tenant-scoped queries everywhere
+- [ ] Role-based access in routers
+- [ ] Admin endpoints
 
 ---
 
-## License
+## 🧠 Design Philosophy
 
-MIT
+- Tenant isolation by design
+- Deny-by-default access policy
+- Explicit permission boundaries
+- No implicit access
+- Architecture-first development
+
+---
+
+## 📚 Documentation
+
+- `docs/error-handling.md` — Official error-handling strategy
+- `docs/tenant-isolation.md` — Tenant isolation rules & checklist
+- `docs/architecture.md` — Layer boundaries & design (planned)
+
+---
+
+## 🚀 Vision
+
+This backend is a **reference architecture** for secure, multi-tenant SaaS systems.
+Every decision is intentional.
