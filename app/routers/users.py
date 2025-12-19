@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_tenant
 from app.models.tenant import Tenant
-from app.services import users_service
+from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -17,7 +17,7 @@ def list_users_endpoint(
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_current_tenant),
 ):
-    return users_service.list_users(db, tenant.id)
+    return user_service.list_users(db, tenant.id)
 
 
 # -------------------------
@@ -30,7 +30,7 @@ def update_user_endpoint(
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_current_tenant),
 ):
-    updated = users_service.update_user_email(db, user_id, tenant.id, email)
+    updated = user_service.update_user_email(db, user_id, tenant.id, email)
     if not updated:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -48,7 +48,7 @@ def delete_user_endpoint(
     db: Session = Depends(get_db),
     tenant: Tenant = Depends(get_current_tenant),
 ):
-    ok = users_service.delete_user(db, user_id, tenant.id)
+    ok = user_service.delete_user(db, user_id, tenant.id)
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

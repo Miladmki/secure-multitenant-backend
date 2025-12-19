@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Table, Index
+from sqlalchemy import Column, Integer, String, ForeignKey, Table
 from sqlalchemy.orm import relationship, Mapped
 from typing import TYPE_CHECKING, List
 from app.core.database import Base
@@ -29,6 +29,7 @@ class Role(Base):
     __tablename__ = "roles"
 
     id = Column(Integer, primary_key=True, index=True)
+    # فقط یک بار ایندکس تعریف می‌کنیم (index=True کافی است)
     name = Column(
         String(100), unique=True, nullable=False, index=True
     )  # مثل "admin", "user"
@@ -39,5 +40,3 @@ class Role(Base):
         back_populates="roles",
         cascade="all",
     )
-
-    __table_args__ = (Index("ix_roles_name", "name"),)
