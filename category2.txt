@@ -1,3 +1,42 @@
+===== app\models\__init__.py =====
+from app.models.user import User
+from app.models.tenant import Tenant
+from app.models.role import Role
+from app.models.refresh_token import RefreshToken
+from app.models.user_roles import user_roles
+
+__all__ = [
+    "User",
+    "Tenant",
+    "Role",
+    "RefreshToken",
+    "user_roles",
+]
+
+
+===== app\models\tenant.py =====
+from sqlalchemy import Column, Integer, String, DateTime, text
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+    # روابط
+    users = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
+    roles = relationship("Role", back_populates="tenant", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<Tenant id={self.id} name={self.name}>"
+
+
+===== tests\test_roles.py =====
 import pytest
 import uuid
 from fastapi.testclient import TestClient
@@ -6,7 +45,7 @@ from collections.abc import Generator
 
 from app.main import app
 from app.core.database import get_db, Base
-from app.models.tenant import Tenant   # ✅ اصلاح شد
+from app.models import tenant
 from app.models.user import User
 from app.models.role import Role
 from app.core.security import create_access_token
@@ -47,10 +86,9 @@ def create_user_with_role(db: Session, role_name: str | None):
     db.refresh(user)
 
     if role_name:
-        # ✅ اصلاح: به جای tenant.id از Tenant.id استفاده می‌کنیم
-        role = db.query(Role).filter(Role.name == role_name, Role.tenant_id == Tenant.id).first()
+        role = db.query(Role).filter(Role.name == role_name, Role.tenant_id == tenant.id).first()
         if not role:
-            role = Role(name=role_name, tenant_id=user.tenant_id)
+            role = Role(name=role_name)
             db.add(role)
             db.commit()
             db.refresh(role)
@@ -85,3 +123,5 @@ def test_user_with_user_role(db_session: Session):
         "/admin/dashboard", headers={"Authorization": f"Bearer {token}"}
     )
     assert response.status_code == 403
+
+

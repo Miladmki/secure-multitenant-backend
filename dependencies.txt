@@ -1,0 +1,109 @@
+
+# ===== app/core/deps.py =====
+from fastapi import Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.models.user import User
+from app.models.role import Role
+from app.models.tenant import Tenant
+from app.models.user_roles import user_roles as user_roles_table
+from app.core.security import oauth2_scheme, decode_token
+
+
+def get_current_user(
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+) -> User:
+    try:
+        payload = decode_token(token)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+    user_id: str = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
+    return user
+
+
+def get_current_tenant(
+    tenant_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Tenant:
+    if current_user.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: cross-tenant access",
+        )
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
+        )
+    return tenant
+
+
+def require_role(role_name: str):
+    def role_dependency(
+        db: Session = Depends(get_db),
+        token_user: User = Depends(get_current_user),
+    ) -> User:
+        role_exists = (
+            db.query(Role)
+            .join(user_roles_table, Role.id == user_roles_table.c.role_id)
+            .filter(
+                user_roles_table.c.user_id == token_user.id,
+                Role.name == role_name,
+                Role.tenant_id == token_user.tenant_id,
+            )
+            .first()
+        )
+        if not role_exists:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: role mismatch"
+            )
+        return token_user
+
+    return role_dependency
+
+
+def require_global_role(role_name: str):
+    def role_dependency(
+        db: Session = Depends(get_db),
+        token_user: User = Depends(get_current_user),
+    ) -> User:
+        role_exists = (
+            db.query(Role)
+            .join(user_roles_table, Role.id == user_roles_table.c.role_id)
+            .filter(user_roles_table.c.user_id == token_user.id, Role.name == role_name)
+            .first()
+        )
+        if not role_exists:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: role mismatch"
+            )
+        return token_user
+
+    return role_dependency
+
+# ===== app/core/utils.py =====
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+from app.models.tenant import Tenant
+
+
+def get_scoped_resource_or_forbid(db: Session, tenant: Tenant, model, obj_id: int):
+    obj = (
+        db.query(model).filter(model.id == obj_id, model.tenant_id == tenant.id).first()
+    )
+    if not obj:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return obj

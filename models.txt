@@ -1,0 +1,153 @@
+
+# ===== app/models/user.py =====
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, text, UniqueConstraint
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, index=True)
+    hashed_password = Column(String, nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+    tenant = relationship("Tenant", back_populates="users")
+    roles = relationship("Role", secondary="user_roles", back_populates="users")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("email", "tenant_id", name="uq_user_email_tenant"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<User id={self.id} email={self.email}>"
+
+# ===== app/models/role.py =====
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, text
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+class Role(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+
+    created_at = Column(DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False)
+
+    tenant = relationship("Tenant", back_populates="roles")
+    users = relationship("User", secondary="user_roles", back_populates="roles")
+
+    def __repr__(self) -> str:
+        return f"<Role id={self.id} name={self.name} tenant_id={self.tenant_id}>"
+
+# ===== app/models/user_roles.py =====
+from sqlalchemy import Table, Column, Integer, ForeignKey
+from app.core.database import Base
+
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+)
+
+# ===== app/models/refresh_token.py =====
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    ForeignKey,
+    text,
+    UniqueConstraint,
+    Index,
+)
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, nullable=False, index=True)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_id = Column(
+        Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+
+    created_at = Column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    expires_at = Column(DateTime, nullable=False)
+
+    user = relationship("User", back_populates="refresh_tokens")
+
+    __table_args__ = (
+        UniqueConstraint("token", name="uq_refresh_token_token"),
+        Index("ix_refresh_tokens_user_tenant", "user_id", "tenant_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken id={self.id} user_id={self.user_id} tenant_id={self.tenant_id}>"
+
+# ===== app/models/tenant.py =====
+from sqlalchemy import Column, Integer, String, DateTime, text
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+
+    created_at = Column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+
+    # روابط
+    users = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
+    roles = relationship("Role", back_populates="tenant", cascade="all, delete-orphan")
+    items = relationship("Item", back_populates="tenant", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<Tenant id={self.id} name={self.name}>"
+
+# ===== app/models/item.py =====
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, text
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class Item(Base):
+    __tablename__ = "items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    description = Column(String, nullable=True)
+    tenant_id = Column(
+        Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+    )
+
+    created_at = Column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
+    updated_at = Column(
+        DateTime,
+        server_default=text("CURRENT_TIMESTAMP"),
+        onupdate=text("CURRENT_TIMESTAMP"),
+    )
+
+    tenant = relationship("Tenant", back_populates="items")
+
+    def __repr__(self) -> str:
+        return f"<Item id={self.id} name={self.name} tenant_id={self.tenant_id}>"

@@ -1,29 +1,38 @@
-from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, status
+from datetime import datetime, timedelta
+from typing import Optional
 
 from app.models.user import User
-from app.models.refresh_token import RefreshToken
 from app.models.tenant import Tenant
+from app.models.refresh_token import RefreshToken
 from app.core.security import (
     hash_password,
     verify_password,
     create_access_token,
     create_refresh_token,
 )
-from app.schemas.user import UserCreate
-from app.schemas.token import Token
 
 
-def register_user(db: Session, tenant: Tenant, user_in: UserCreate) -> User:
+# Keep services pure business logic
+class AuthError(Exception):
+    pass
+
+
+REFRESH_TOKEN_TTL_MINUTES = 60 * 24 * 7  # 7 days
+
+
+def _refresh_expiry() -> datetime:
+    return datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_TTL_MINUTES)
+
+
+def register_user(db: Session, tenant: Tenant, user_in) -> User:
     existing = (
         db.query(User)
         .filter(User.email == user_in.email, User.tenant_id == tenant.id)
         .first()
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-
+        raise AuthError("Email already registered")
     user = User(
         email=user_in.email,
         hashed_password=hash_password(user_in.password),
@@ -35,85 +44,71 @@ def register_user(db: Session, tenant: Tenant, user_in: UserCreate) -> User:
     return user
 
 
-def authenticate_user(db: Session, tenant: Tenant, email: str, password: str) -> Token:
+def authenticate_user(db: Session, tenant: Tenant, email: str, password: str) -> dict:
     user = (
         db.query(User).filter(User.email == email, User.tenant_id == tenant.id).first()
     )
     if not user or not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise AuthError("Invalid credentials")
 
-    access_token = create_access_token(
-        subject=str(user.id), expires_delta=timedelta(minutes=30)
-    )
-    refresh_token = create_refresh_token(subject=str(user.id))
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    access = create_access_token(subject=str(user.id))
+    refresh = create_refresh_token(subject=str(user.id))
 
-    db.add(
-        RefreshToken(
-            token=refresh_token,
-            user_id=user.id,
-            tenant_id=tenant.id,
-            expires_at=expires_at,
-        )
+    rt = RefreshToken(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        token=refresh,
+        expires_at=_refresh_expiry(),
     )
+    db.add(rt)
     db.commit()
 
-    return Token(
-        access_token=access_token, refresh_token=refresh_token, token_type="bearer"
-    )
+    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer"}
 
 
-def refresh_tokens(db: Session, tenant: Tenant, refresh_token: str) -> Token:
-    stored = (
+def refresh_tokens(db: Session, tenant: Tenant, refresh_token: str) -> dict:
+    rt = (
         db.query(RefreshToken)
         .filter(
             RefreshToken.token == refresh_token, RefreshToken.tenant_id == tenant.id
         )
         .first()
     )
-    if not stored:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    if not rt or rt.expires_at <= datetime.utcnow():
+        # Match test expectation text
+        raise AuthError("Invalid or expired refresh token")
 
     user = (
         db.query(User)
-        .filter(User.id == stored.user_id, User.tenant_id == tenant.id)
+        .filter(User.id == rt.user_id, User.tenant_id == tenant.id)
         .first()
     )
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        raise AuthError("Invalid or expired refresh token")
 
-    db.delete(stored)
+    new_access = create_access_token(subject=str(user.id))
+    new_refresh = create_refresh_token(subject=str(user.id))
+
+    rt.token = new_refresh
+    rt.expires_at = _refresh_expiry()
     db.commit()
 
-    access_token = create_access_token(
-        subject=str(user.id), expires_delta=timedelta(minutes=30)
-    )
-    new_refresh_token = create_refresh_token(subject=str(user.id))
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-
-    db.add(
-        RefreshToken(
-            token=new_refresh_token,
-            user_id=user.id,
-            tenant_id=tenant.id,
-            expires_at=expires_at,
-        )
-    )
-    db.commit()
-
-    return Token(
-        access_token=access_token, refresh_token=new_refresh_token, token_type="bearer"
-    )
+    return {
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "token_type": "bearer",
+    }
 
 
 def logout_user(db: Session, tenant: Tenant, refresh_token: str) -> None:
-    stored = (
+    rt = (
         db.query(RefreshToken)
         .filter(
             RefreshToken.token == refresh_token, RefreshToken.tenant_id == tenant.id
         )
         .first()
     )
-    if stored:
-        db.delete(stored)
-        db.commit()
+    if not rt:
+        return
+    db.delete(rt)
+    db.commit()

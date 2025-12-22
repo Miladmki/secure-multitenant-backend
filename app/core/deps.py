@@ -1,36 +1,34 @@
-# app/core/deps.py
+# ===== app/core/deps.py =====
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.user import User
-from app.models.tenant import Tenant
 from app.core.security import oauth2_scheme, decode_token
+from app.models.user import User
+from app.models.role import Role
+from app.models.tenant import Tenant
 
 
-# -------------------------
-# User dependency
-# -------------------------
+# -----------------------------
+# Authentication
+# -----------------------------
 def get_current_user(
-    db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
 ) -> User:
-    """
-    Resolve current user from JWT token.
-    """
     try:
         payload = decode_token(token)
-    except ValueError:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail="Invalid authentication token",
         )
 
-    user_id: str = payload.get("sub")
+    user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
+            detail="Invalid authentication token",
         )
 
     user = db.query(User).filter(User.id == int(user_id)).first()
@@ -39,43 +37,58 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
+
     return user
 
 
-# -------------------------
-# Tenant dependency
-# -------------------------
+# -----------------------------
+# Tenant resolution
+# -----------------------------
 def get_current_tenant(
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> Tenant:
-    """
-    Resolve current tenant from current user.
-    """
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     if not tenant:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tenant not found or mismatch",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Tenant context invalid",
         )
     return tenant
 
 
-# -------------------------
-# Role dependency
-# -------------------------
+# -----------------------------
+# Role enforcement (tenant-scoped)
+# -----------------------------
 def require_role(role_name: str):
-    """
-    Dependency برای enforce کردن نقش کاربر.
-    استفاده: current_user = Depends(require_role("admin"))
-    """
-    def role_dependency(current_user: User = Depends(get_current_user)):
-        if current_user.role != role_name:
-            # پیام خطا ساده و امن، بدون افشای role مورد انتظار
+    def dependency(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if not any(
+            role.name == role_name and role.tenant_id == current_user.tenant_id
+            for role in current_user.roles
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden",
+                detail="Forbidden: insufficient role",
             )
         return current_user
 
-    return role_dependency
+    return dependency
+
+
+# -----------------------------
+# Role enforcement (global)
+# -----------------------------
+def require_global_role(role_name: str):
+    def dependency(
+        current_user: User = Depends(get_current_user),
+    ) -> User:
+        if not any(role.name == role_name for role in current_user.roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: insufficient role",
+            )
+        return current_user
+
+    return dependency

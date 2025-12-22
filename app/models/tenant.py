@@ -1,28 +1,22 @@
-# app/models/tenant.py
-from datetime import datetime
-from typing import TYPE_CHECKING
-from sqlalchemy import String, DateTime
-from sqlalchemy.sql import func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
+from sqlalchemy import Column, Integer, String, DateTime, text
+from sqlalchemy.orm import relationship
 from app.core.database import Base
-
-if TYPE_CHECKING:
-    from app.models.user import User
 
 
 class Tenant(Base):
     __tablename__ = "tenants"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    # DB-level default for portability (SQLite/Postgres)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+
+    created_at = Column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
 
-    users: Mapped[list["User"]] = relationship(
-        "User",
-        back_populates="tenant",
-        cascade="all, delete-orphan",
-    )
+    # روابط
+    users = relationship("User", back_populates="tenant", cascade="all, delete-orphan")
+    roles = relationship("Role", back_populates="tenant", cascade="all, delete-orphan")
+    items = relationship("Item", back_populates="tenant", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<Tenant id={self.id} name={self.name}>"

@@ -1,27 +1,19 @@
 # app/core/database.py
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from app.core.config import settings
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-connect_args = {}
-if settings.database_url.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://...")
 
 engine = create_engine(
-    settings.database_url,
-    connect_args=connect_args,
-    echo=False,
+    DATABASE_URL,
+    connect_args=(
+        {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    ),
 )
 
-SessionLocal = sessionmaker(
-    bind=engine,
-    autocommit=False,
-    autoflush=False,
-)
-
-
-class Base(DeclarativeBase):
-    pass
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
 
 def get_db():

@@ -1,0 +1,205 @@
+
+# ===== app/main.py =====
+from fastapi import FastAPI
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="Secure Multi-Tenant Backend", version="0.1.0")
+
+    # Import and mount routers (each defines its own prefix)
+    from app.api.v1.auth import router as auth_router
+    from app.api.v1.users import router as users_router
+    from app.routers.admin import router as admin_router
+    from app.routers.tenant_dashboard import router as tenants_router
+
+    # Optional: CRUD resources (items)
+    # from app.routers.items import router as items_router
+
+    app.include_router(auth_router)
+    app.include_router(users_router)
+    app.include_router(tenants_router)
+    app.include_router(admin_router)
+    # app.include_router(items_router)
+
+    @app.get("/health", tags=["health"])
+    def health_check():
+        return {"status": "ok"}
+
+    return app
+
+
+# For prod run and tests that import `app`
+app = create_app()
+
+# ===== app/api/v1/auth.py =====
+from fastapi import APIRouter, Depends, HTTPException, Request, Body, status
+from sqlalchemy.orm import Session
+from typing import Optional
+
+from app.core.database import get_db
+from app.models.tenant import Tenant
+from app.schemas.user import UserCreate, UserPublic
+from app.schemas.token import Token
+from app.services import auth_service
+
+router = APIRouter(tags=["auth"])
+
+
+def _get_default_tenant(db: Session) -> Optional[Tenant]:
+    return db.query(Tenant).first()
+
+
+@router.post(
+    "/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED
+)
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    tenant = _get_default_tenant(db)
+    if tenant is None:
+        raise HTTPException(
+            status_code=500, detail="No tenant available for registration"
+        )
+    try:
+        user = auth_service.register_user(db, tenant, user_in)
+    except auth_service.AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return user
+
+
+@router.post("/login", response_model=Token, status_code=status.HTTP_200_OK)
+async def login(request: Request, db: Session = Depends(get_db)):
+    content_type = request.headers.get("content-type", "")
+    email = password = None
+
+    if "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        email = form.get("username")
+        password = form.get("password")
+    elif "application/json" in content_type:
+        body = await request.json()
+        email = body.get("email")
+        password = body.get("password")
+
+    if not email or not password:
+        raise HTTPException(
+            status_code=422, detail="email/username and password are required"
+        )
+
+    tenant = _get_default_tenant(db)
+    if tenant is None:
+        raise HTTPException(
+            status_code=500, detail="No tenant available for authentication"
+        )
+
+    try:
+        return auth_service.authenticate_user(db, tenant, email, password)
+    except auth_service.AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@router.post("/refresh", response_model=Token, status_code=status.HTTP_200_OK)
+def refresh_token_endpoint(payload: dict = Body(...), db: Session = Depends(get_db)):
+    token = payload.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=422, detail="refresh_token is required")
+
+    tenant = _get_default_tenant(db)
+    if tenant is None:
+        raise HTTPException(status_code=500, detail="No tenant available for refresh")
+
+    try:
+        return auth_service.refresh_tokens(db, tenant, token)
+    except auth_service.AuthError as e:
+        # Tests expect specific wording
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(payload: dict = Body(...), db: Session = Depends(get_db)):
+    token = payload.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=422, detail="refresh_token is required")
+
+    tenant = _get_default_tenant(db)
+    if tenant is None:
+        raise HTTPException(status_code=500, detail="No tenant available for logout")
+
+    auth_service.logout_user(db, tenant, token)
+    return
+
+# ===== app/api/v1/users.py =====
+from fastapi import APIRouter, Depends
+from app.core.deps import get_current_user
+from app.models.user import User
+from app.schemas.user import UserPublic
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/me", response_model=UserPublic, status_code=200)
+def read_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+# ===== app/routers/admin.py =====
+from fastapi import APIRouter, Depends
+from app.core.deps import require_global_role
+from app.models.user import User
+
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+@router.get("/dashboard", status_code=200)
+def admin_global_dashboard(
+    current_user: User = Depends(require_global_role("admin")),
+):
+    return {"msg": "Welcome admin"}
+
+# ===== app/routers/tenants.py =====
+# ⚠ فایل app/routers/tenants.py پیدا نشد.
+
+# ===== app/routers/items.py =====
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from app.core.deps import get_current_tenant, require_role
+from app.core.utils import get_scoped_resource_or_forbid
+from app.models.tenant import Tenant
+from app.models.user import User
+from app.models.item import Item  # فرضی؛ جایگزین با مدل واقعی‌ات
+
+router = APIRouter(prefix="/tenants", tags=["items"])
+
+
+@router.get("/{tenant_id}/items/{item_id}")
+def read_item(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("user")),
+    item_id: int = ...,
+):
+    item = get_scoped_resource_or_forbid(db, tenant, Item, item_id)
+    return item
+
+
+@router.put("/{tenant_id}/items/{item_id}")
+def update_item(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("user")),
+    item_id: int = ...,
+    payload: dict = ...,
+):
+    item = get_scoped_resource_or_forbid(db, tenant, Item, item_id)
+    # ... apply updates
+    return item
+
+
+@router.delete("/{tenant_id}/items/{item_id}")
+def delete_item(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("user")),
+    item_id: int = ...,
+):
+    item = get_scoped_resource_or_forbid(db, tenant, Item, item_id)
+    db.delete(item)
+    db.commit()
+    return {"deleted": True}

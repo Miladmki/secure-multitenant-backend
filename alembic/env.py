@@ -1,51 +1,51 @@
-from logging.config import fileConfig
+# ===== alembic/env.py =====
 from sqlalchemy import engine_from_config, pool
 from alembic import context
-
-# Alembic Config
-config = context.config
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
 
 # Import Base
 from app.core.database import Base
 
-# Import ALL models
-import app.models.user
-import app.models.tenant
-import app.models.refresh_token
+# 🔥 IMPORT ALL MODELS HERE (and ONLY here)
+from app.models.tenant import Tenant
+from app.models.user import User
+from app.models.role import Role
+from app.models.user_roles import user_roles
+from app.models.refresh_token import RefreshToken
+from app.models.item import Item
 
-# Target metadata
 target_metadata = Base.metadata
 
 
-def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+def run_migrations_offline():
+    url = (
+        context.get_x_argument(as_dictionary=True).get("url")
+        or context.get_ini_section("alembic")["sqlalchemy.url"]
+    )
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-        compare_type=True,
-        compare_server_default=True,
     )
+
     with context.begin_transaction():
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
+def run_migrations_online():
+    config = context.config
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,
-            compare_server_default=True,
         )
+
         with context.begin_transaction():
             context.run_migrations()
 

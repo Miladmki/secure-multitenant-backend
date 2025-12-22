@@ -1,0 +1,190 @@
+
+# ===== app/core/database.py =====
+# app/core/database.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
+from app.core.config import settings
+
+SQLALCHEMY_DATABASE_URL = settings.effective_database_url
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, echo=False)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        db.close()
+
+# ===== alembic/env.py =====
+# alembic/env.py
+from sqlalchemy import engine_from_config, pool
+from alembic import context
+
+# Import Base and ALL model modules so mappers initialize
+from app.core.database import Base
+from app.models.tenant import Tenant
+from app.models.user import User
+from app.models.role import Role
+from app.models.user_roles import user_roles
+from app.models.refresh_token import RefreshToken
+from app.models.item import Item  # if present
+
+target_metadata = Base.metadata
+
+
+def run_migrations_offline():
+    url = (
+        context.get_x_argument(as_dictionary=True).get("url")
+        or context.get_ini_section("alembic")["sqlalchemy.url"]
+    )
+    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online():
+    config = context.config
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+
+# ===== tests/conftest.py =====
+# tests/conftest.py
+import os
+import tempfile
+import shutil
+import pytest
+from importlib import import_module
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from fastapi.testclient import TestClient
+from fastapi import FastAPI
+from alembic import command
+from alembic.config import Config
+
+# create a temporary directory for test DB to avoid file lock issues
+TMP_DIR = os.path.join(os.path.dirname(__file__), ".tmp_test")
+os.makedirs(TMP_DIR, exist_ok=True)
+TEST_DB_PATH = os.path.join(TMP_DIR, "test.db")
+TEST_DB_URL = f"sqlite:///{TEST_DB_PATH}"
+
+# Ensure application uses test DB before importing app modules
+os.environ["DATABASE_URL"] = TEST_DB_URL
+
+
+def run_migrations():
+    alembic_ini = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
+    alembic_cfg = Config(alembic_ini)
+    alembic_cfg.set_main_option("sqlalchemy.url", TEST_DB_URL)
+    command.upgrade(alembic_cfg, "head")
+
+
+# import app after DATABASE_URL is set
+try:
+    main_mod = import_module("app.main")
+    app = getattr(main_mod, "app", None)
+except Exception as e:
+    app = None
+    import_err = e
+
+if app is None or not isinstance(app, FastAPI):
+    raise RuntimeError(
+        "Could not import FastAPI instance from app.main. Import error: "
+        f"{locals().get('import_err')}"
+    )
+
+
+@pytest.fixture(scope="session")
+def engine():
+    # remove old DB if exists
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)
+    eng = create_engine(TEST_DB_URL, connect_args={"check_same_thread": False})
+    yield eng
+    # ensure engine disposed
+    try:
+        eng.dispose()
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="session")
+def TestingSessionLocal(engine):
+    return sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_database(engine):
+    # run migrations on test DB
+    run_migrations()
+    yield
+    # teardown: dispose engine and remove tmp dir
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    # remove temp dir and files
+    if os.path.exists(TMP_DIR):
+        shutil.rmtree(TMP_DIR, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def override_db(TestingSessionLocal):
+    """Override get_db dependency for each test to use the test session."""
+    from app.core.database import get_db as real_get_db  # import after env set
+
+    def _override():
+        db = TestingSessionLocal()
+        try:
+            # ensure default tenant exists if app expects it
+            try:
+                import app.models.tenant as tenant_model
+
+                tenant = db.query(tenant_model.Tenant).first()
+                if not tenant:
+                    tenant = tenant_model.Tenant(name="default")
+                    db.add(tenant)
+                    db.commit()
+                    db.refresh(tenant)
+            except Exception:
+                pass
+            yield db
+        finally:
+            # rollback any pending transaction and close
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            db.close()
+
+    app.dependency_overrides[real_get_db] = _override
+    yield
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client():
+    # Use context manager to ensure proper shutdown and cleanup
+    with TestClient(app) as c:
+        yield c

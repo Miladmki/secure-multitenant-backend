@@ -1,57 +1,49 @@
-from datetime import datetime
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey, Boolean, DateTime, String, Index, UniqueConstraint
+# ===== app/models/refresh_token.py =====
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    ForeignKey,
+    text,
+    UniqueConstraint,
+    Index,
+    Boolean,
+)
+from sqlalchemy.orm import relationship
 from app.core.database import Base
-from app.models.user import User
-from app.models.tenant import Tenant
+from sqlalchemy import Boolean
+
+revoked = Column(Boolean, nullable=False, server_default="false")
 
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String, unique=True, nullable=False, index=True)
 
-    token: Mapped[str] = mapped_column(
-        String(64),
-        unique=True,
-        index=True,
-        nullable=False,
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_id = Column(
+        Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
     )
 
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    revoked = Column(Boolean, nullable=False, server_default=text("0"))
 
-    tenant_id: Mapped[int] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+    created_at = Column(
+        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
+    expires_at = Column(DateTime, nullable=False)
 
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-    )
-
-    revoked: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-    )
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
-    )
-
-    user: Mapped["User"] = relationship(back_populates="refresh_tokens")
-    tenant: Mapped["Tenant"] = relationship(back_populates="refresh_tokens")
+    user = relationship("User", back_populates="refresh_tokens")
 
     __table_args__ = (
         UniqueConstraint("token", name="uq_refresh_token_token"),
-        Index("ix_refresh_token_user_id", "user_id"),
-        Index("ix_refresh_token_tenant_id", "tenant_id"),
+        Index("ix_refresh_tokens_user_tenant", "user_id", "tenant_id"),
+        Index("ix_refresh_tokens_valid", "token", "revoked"),
     )
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken id={self.id} user_id={self.user_id} tenant_id={self.tenant_id} revoked={self.revoked}>"
