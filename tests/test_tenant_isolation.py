@@ -13,11 +13,16 @@ from app.models.tenant import Tenant
 
 @pytest.fixture(autouse=True)
 def reset_db():
-    # drop & create برای شروع تست
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+
+    db = next(get_db())
+    db.add(Tenant(name="default"))
+    db.commit()
+    db.close()
+
     yield
-    # teardown (اختیاری)
+
     Base.metadata.drop_all(bind=engine)
 
 

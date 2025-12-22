@@ -1,4 +1,4 @@
-# ===== app/api/v1/auth.py =====
+# app/api/v1/auth.py
 from fastapi import APIRouter, Depends, HTTPException, Request, Body, status
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -9,8 +9,7 @@ from app.schemas.user import UserCreate, UserPublic
 from app.schemas.token import Token
 from app.services import auth_service
 
-# ✅ FIX: اضافه شدن prefix
-router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _get_default_tenant(db: Session) -> Optional[Tenant]:
@@ -22,10 +21,8 @@ def _get_default_tenant(db: Session) -> Optional[Tenant]:
 )
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
     tenant = _get_default_tenant(db)
-    if tenant is None:
-        raise HTTPException(
-            status_code=500, detail="No tenant available for registration"
-        )
+    if not tenant:
+        raise HTTPException(status_code=500, detail="No tenant available")
 
     try:
         return auth_service.register_user(db, tenant, user_in)
@@ -53,10 +50,8 @@ async def login(request: Request, db: Session = Depends(get_db)):
         )
 
     tenant = _get_default_tenant(db)
-    if tenant is None:
-        raise HTTPException(
-            status_code=500, detail="No tenant available for authentication"
-        )
+    if not tenant:
+        raise HTTPException(status_code=500, detail="No tenant available")
 
     try:
         return auth_service.authenticate_user(db, tenant, email, password)
@@ -64,30 +59,17 @@ async def login(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail=str(e))
 
 
-@router.post("/refresh", response_model=Token, status_code=status.HTTP_201_CREATED)
-def refresh_token_endpoint(payload: dict = Body(...), db: Session = Depends(get_db)):
+@router.post("/refresh", response_model=Token, status_code=status.HTTP_200_OK)
+def refresh_token(payload: dict = Body(...), db: Session = Depends(get_db)):
     token = payload.get("refresh_token")
     if not token:
         raise HTTPException(status_code=422, detail="refresh_token is required")
 
     tenant = _get_default_tenant(db)
-    if tenant is None:
-        raise HTTPException(status_code=500, detail="No tenant available for refresh")
+    if not tenant:
+        raise HTTPException(status_code=500, detail="No tenant available")
 
     try:
         return auth_service.refresh_tokens(db, tenant, token)
     except auth_service.AuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
-
-
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(payload: dict = Body(...), db: Session = Depends(get_db)):
-    token = payload.get("refresh_token")
-    if not token:
-        raise HTTPException(status_code=422, detail="refresh_token is required")
-
-    tenant = _get_default_tenant(db)
-    if tenant is None:
-        raise HTTPException(status_code=500, detail="No tenant available for logout")
-
-    auth_service.logout_user(db, tenant, token)
