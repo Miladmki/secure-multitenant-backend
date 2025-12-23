@@ -19,28 +19,23 @@ from app.models.tenant import Tenant
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
     os.makedirs(TMP_DIR, exist_ok=True)
-
-    Base.metadata.create_all(bind=engine)
-
-    db = SessionLocal()
-    try:
-        if not db.query(Tenant).first():
-            db.add(Tenant(name="default"))
-            db.commit()
-    finally:
-        db.close()
-
     yield
-
     shutil.rmtree(TMP_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
 def override_db():
-    def _get_db():
-        # تضمین schema
-        Base.metadata.create_all(bind=engine)
+    """
+    🔥 CRITICAL FIX:
+    - DB is RESET before each test
+    - Guarantees test isolation
+    """
 
+    # 💣 Drop everything
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    def _get_db():
         db = SessionLocal()
         try:
             # تضمین tenant پیش‌فرض
@@ -50,7 +45,6 @@ def override_db():
 
             yield db
         finally:
-            db.rollback()
             db.close()
 
     app.dependency_overrides[get_db] = _get_db
