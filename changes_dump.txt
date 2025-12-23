@@ -530,9 +530,9 @@ DATABASE_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/secure_backe
 
 # Security
 SECRET_KEY=test-secret-key-for-jwt-tokens-12345
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
+algorithm=HS256
+access_token_expire_minutes=30
+refresh_token_expire_days=7
 
 # Multi-Tenant
 TENANT_DEFAULT_NAME=default

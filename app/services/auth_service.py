@@ -1,114 +1,177 @@
+from datetime import datetime, timedelta, timezone
+import secrets
+
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
-from typing import Optional
 
 from app.models.user import User
-from app.models.tenant import Tenant
 from app.models.refresh_token import RefreshToken
+from app.schemas.user import UserCreate
+from app.schemas.token import Token
 from app.core.security import (
-    hash_password,
     verify_password,
+    get_password_hash,
     create_access_token,
-    create_refresh_token,
 )
+from app.core.config import settings
 
 
-# Keep services pure business logic
+# ======================
+# Errors
+# ======================
+
+
 class AuthError(Exception):
     pass
 
 
-REFRESH_TOKEN_TTL_MINUTES = 60 * 24 * 7  # 7 days
+# ======================
+# Helpers
+# ======================
+
+
+def _generate_refresh_token() -> str:
+    """
+    Generate cryptographically secure opaque refresh token.
+    Stored verbatim in DB (NOT JWT).
+    """
+    return secrets.token_urlsafe(48)
 
 
 def _refresh_expiry() -> datetime:
-    return datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_TTL_MINUTES)
+    # always return a timezone-aware UTC expiry
+    return datetime.now(timezone.utc) + timedelta(
+        days=settings.refresh_token_expire_days
+    )
 
 
-def register_user(db: Session, tenant: Tenant, user_in) -> User:
+# ======================
+# Public API
+# ======================
+
+
+def register_user(db: Session, tenant, user_in: UserCreate) -> User:
     existing = (
         db.query(User)
-        .filter(User.email == user_in.email, User.tenant_id == tenant.id)
+        .filter(
+            User.email == user_in.email,
+            User.tenant_id == tenant.id,
+        )
         .first()
     )
     if existing:
         raise AuthError("Email already registered")
+
     user = User(
         email=user_in.email,
-        hashed_password=hash_password(user_in.password),
+        hashed_password=get_password_hash(user_in.password),
         tenant_id=tenant.id,
+        is_active=True,
     )
+
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
 
 
-def authenticate_user(db: Session, tenant: Tenant, email: str, password: str) -> dict:
+def authenticate_user(
+    db: Session,
+    tenant,
+    email: str,
+    password: str,
+) -> Token:
     user = (
-        db.query(User).filter(User.email == email, User.tenant_id == tenant.id).first()
+        db.query(User)
+        .filter(
+            User.email == email,
+            User.tenant_id == tenant.id,
+        )
+        .first()
     )
+
     if not user or not verify_password(password, user.hashed_password):
         raise AuthError("Invalid credentials")
 
-    access = create_access_token(subject=str(user.id))
-    refresh = create_refresh_token(subject=str(user.id))
+    access_token = create_access_token({"sub": str(user.id), "tenant_id": tenant.id})
 
-    rt = RefreshToken(
+    refresh_token_value = _generate_refresh_token()
+
+    refresh_token = RefreshToken(
+        token=refresh_token_value,
         user_id=user.id,
         tenant_id=tenant.id,
-        token=refresh,
         expires_at=_refresh_expiry(),
     )
-    db.add(rt)
+
+    db.add(refresh_token)
     db.commit()
 
-    return {"access_token": access, "refresh_token": refresh, "token_type": "bearer"}
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token_value,
+        token_type="bearer",
+    )
 
 
-def refresh_tokens(db: Session, tenant: Tenant, refresh_token: str) -> dict:
-    rt = (
+def refresh_tokens(
+    db: Session,
+    tenant,
+    refresh_token_str: str,
+):
+    """
+    Secure Refresh Token Rotation
+    - Opaque refresh tokens
+    - Single-use
+    - No state leakage (generic errors)
+    """
+
+    token = (
         db.query(RefreshToken)
         .filter(
-            RefreshToken.token == refresh_token, RefreshToken.tenant_id == tenant.id
+            RefreshToken.token == refresh_token_str,
+            RefreshToken.tenant_id == tenant.id,
         )
         .first()
     )
-    if not rt or rt.expires_at <= datetime.utcnow():
-        # Match test expectation text
+
+    # 🔒 GENERIC FAILURE (no info leak)
+    if not token:
         raise AuthError("Invalid or expired refresh token")
 
-    user = (
-        db.query(User)
-        .filter(User.id == rt.user_id, User.tenant_id == tenant.id)
-        .first()
+    if token.is_revoked:
+        raise AuthError("Invalid or expired refresh token")
+
+    if token.is_expired:
+        raise AuthError("Invalid or expired refresh token")
+
+    # ----------------------
+    # ROTATION
+    # ----------------------
+
+    now = datetime.now(timezone.utc)
+
+    token.revoked = True
+    token.revoked_at = now
+
+    new_refresh_token_value = _generate_refresh_token()
+    token.replaced_by_token = new_refresh_token_value
+
+    new_refresh_token = RefreshToken(
+        token=new_refresh_token_value,
+        user_id=token.user_id,
+        tenant_id=tenant.id,
+        expires_at=_refresh_expiry(),
     )
-    if not user:
-        raise AuthError("Invalid or expired refresh token")
 
-    new_access = create_access_token(subject=str(user.id))
-    new_refresh = create_refresh_token(subject=str(user.id))
-
-    rt.token = new_refresh
-    rt.expires_at = _refresh_expiry()
+    db.add(new_refresh_token)
     db.commit()
+
+    access_token = create_access_token(
+        {"sub": str(token.user_id), "tenant_id": tenant.id}
+    )
 
     return {
-        "access_token": new_access,
-        "refresh_token": new_refresh,
+        "access_token": access_token,
+        "refresh_token": new_refresh_token_value,
         "token_type": "bearer",
     }
-
-
-def logout_user(db: Session, tenant: Tenant, refresh_token: str) -> None:
-    rt = (
-        db.query(RefreshToken)
-        .filter(
-            RefreshToken.token == refresh_token, RefreshToken.tenant_id == tenant.id
-        )
-        .first()
-    )
-    if not rt:
-        return
-    db.delete(rt)
-    db.commit()

@@ -1,49 +1,71 @@
-# ===== app/models/refresh_token.py =====
 from sqlalchemy import (
     Column,
     Integer,
     String,
     DateTime,
     ForeignKey,
-    text,
-    UniqueConstraint,
     Index,
     Boolean,
 )
 from sqlalchemy.orm import relationship
-from app.core.database import Base
-from sqlalchemy import Boolean
+from datetime import datetime, timezone
 
-revoked = Column(Boolean, nullable=False, server_default="false")
+from app.core.database import Base
 
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
     id = Column(Integer, primary_key=True, index=True)
+
     token = Column(String, unique=True, nullable=False, index=True)
 
     user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    tenant_id = Column(
-        Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
     )
 
-    revoked = Column(Boolean, nullable=False, server_default=text("0"))
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # store datetimes as timezone-aware where possible
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    # both a boolean and a timestamp so tests that set `.revoked = True` work
+    revoked = Column(Boolean, default=False, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    replaced_by_token = Column(String, nullable=True)
 
     created_at = Column(
-        DateTime, server_default=text("CURRENT_TIMESTAMP"), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
-    expires_at = Column(DateTime, nullable=False)
 
     user = relationship("User", back_populates="refresh_tokens")
+    tenant = relationship("Tenant")
 
-    __table_args__ = (
-        UniqueConstraint("token", name="uq_refresh_token_token"),
-        Index("ix_refresh_tokens_user_tenant", "user_id", "tenant_id"),
-        Index("ix_refresh_tokens_valid", "token", "revoked"),
-    )
+    __table_args__ = (Index("ix_refresh_token_token_tenant", "token", "tenant_id"),)
 
-    def __repr__(self) -> str:
-        return f"<RefreshToken id={self.id} user_id={self.user_id} tenant_id={self.tenant_id} revoked={self.revoked}>"
+    # Helper to coerce naive datetimes to UTC-aware for comparisons
+    @staticmethod
+    def _ensure_aware(dt: datetime) -> datetime:
+        if dt is None:
+            return dt
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    @property
+    def is_expired(self) -> bool:
+        expires = self._ensure_aware(self.expires_at)
+        return datetime.now(timezone.utc) >= expires
+
+    @property
+    def is_revoked(self) -> bool:
+        return bool(self.revoked) or (self.revoked_at is not None)

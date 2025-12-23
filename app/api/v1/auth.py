@@ -72,4 +72,5 @@ def refresh_token(payload: dict = Body(...), db: Session = Depends(get_db)):
     try:
         return auth_service.refresh_tokens(db, tenant, token)
     except auth_service.AuthError as e:
+        # return HTTP 401 with the same error text
         raise HTTPException(status_code=401, detail=str(e))

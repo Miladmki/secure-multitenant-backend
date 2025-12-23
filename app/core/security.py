@@ -1,57 +1,120 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Union, Dict, Any
+import uuid
+
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-import uuid
 from fastapi.security import OAuth2PasswordBearer
+
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # -------------------------
-# OAuth2 scheme
+# Password hashing
 # -------------------------
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+pwd_context = CryptContext(
+    schemes=["argon2"],
+    deprecated="auto",
+)
 
 
-# -------------------------
-# Password helpers
-# -------------------------
-def hash_password(password: str) -> str:
+def get_password_hash(password: str) -> str:
+    """
+    Hash plain password using Argon2.
+    """
     return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify password against stored hash.
+    """
     return pwd_context.verify(plain_password, hashed_password)
+
+
+# -------------------------
+# OAuth2 scheme
+# -------------------------
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 # -------------------------
 # JWT helpers
 # -------------------------
-def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    subject: Union[str, Dict[str, Any]],
+    expires_delta: Optional[timedelta] = None,
+) -> str:
     """
-    Create a short-lived access token (default 30 minutes).
+    Create short-lived access token.
+
+    Compatible with:
+    - subject as str (user_id)            ← legacy/tests
+    - subject as dict payload             ← production usage
     """
-    to_encode = {"sub": subject}
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=30))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+    expire = datetime.now(timezone.utc) + (
+        expires_delta
+        if expires_delta
+        else timedelta(minutes=settings.access_token_expire_minutes)
+    )
+
+    if isinstance(subject, str):
+        payload: Dict[str, Any] = {"sub": subject}
+    elif isinstance(subject, dict):
+        payload = subject.copy()
+    else:
+        raise TypeError("subject must be str or dict")
+
+    payload.update(
+        {
+            "exp": expire,
+            "type": "access",
+        }
+    )
+
+    return jwt.encode(
+        payload,
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(subject: Union[str, Dict[str, Any]]) -> str:
     """
-    Create a long-lived refresh token with unique jti.
+    Create JWT refresh token (NOT USED by auth_service, but kept for compatibility).
     """
-    to_encode = {"sub": subject, "type": "refresh", "jti": str(uuid.uuid4())}
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+
+    if isinstance(subject, str):
+        payload: Dict[str, Any] = {"sub": subject}
+    elif isinstance(subject, dict):
+        payload = subject.copy()
+    else:
+        raise TypeError("subject must be str or dict")
+
+    payload.update(
+        {
+            "jti": str(uuid.uuid4()),
+            "type": "refresh",
+        }
+    )
+
+    return jwt.encode(
+        payload,
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
 
 
 def decode_token(token: str) -> dict:
     """
-    Decode JWT token and return payload.
-    Raises ValueError if token is invalid.
+    Decode and validate JWT token.
     """
     try:
-        return jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        return jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm],
+        )
     except JWTError:
-        raise ValueError("Invalid token")
+        raise ValueError("Invalid or expired token")
