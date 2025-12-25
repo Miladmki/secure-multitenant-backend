@@ -13,8 +13,7 @@ TMP_DIR = os.path.join(BASE_DIR, ".tmp_test")
 TEST_DB_PATH = os.path.join(TMP_DIR, "test.db")
 TEST_DB_URL = f"sqlite:///{TEST_DB_PATH}"
 
-# 🔴 CRITICAL:
-# DATABASE_URL must be set BEFORE importing app or database engine
+# CRITICAL: must be set before importing app/db
 os.environ["DATABASE_URL"] = TEST_DB_URL
 
 # ------------------------------------------------------------------
@@ -31,26 +30,21 @@ from app.models.tenant import Tenant
 # Session-level DB setup / teardown
 # ------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
-    """
-    - Create temp directory for SQLite DB
-    - Cleanup after all tests
-    """
     os.makedirs(TMP_DIR, exist_ok=True)
     yield
     shutil.rmtree(TMP_DIR, ignore_errors=True)
 
+
 # ------------------------------------------------------------------
-# Raw DB session fixture (for direct DB manipulation in tests)
+# Raw DB session fixture
 # ------------------------------------------------------------------
+
 
 @pytest.fixture
 def db_session():
-    """
-    Gives direct access to DB session
-    (used in security tests like refresh token expiry / revoke)
-    """
     db = SessionLocal()
     try:
         yield db
@@ -58,47 +52,41 @@ def db_session():
         db.rollback()
         db.close()
 
+
 # ------------------------------------------------------------------
-# Dependency override for FastAPI
+# Dependency override (CRITICAL)
 # ------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
-def override_db():
+def override_db(db_session):
     """
-    🔥 CRITICAL FIX:
-    - Drop & recreate ALL tables before EACH test
-    - Guarantees full isolation between tests
-    - Ensures default tenant always exists
+    - Drop & recreate schema per test
+    - Ensure FastAPI and tests share the SAME session
     """
 
-    # 💣 Hard reset schema
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
-    def _get_db():
-        db = SessionLocal()
-        try:
-            # Ensure default tenant exists
-            if not db.query(Tenant).first():
-                db.add(Tenant(name="default"))
-                db.commit()
+    # ensure default tenant
+    if not db_session.query(Tenant).first():
+        db_session.add(Tenant(name="default"))
+        db_session.commit()
 
-            yield db
-        finally:
-            db.close()
+    def _get_db():
+        yield db_session
 
     app.dependency_overrides[get_db] = _get_db
     yield
     app.dependency_overrides.clear()
 
+
 # ------------------------------------------------------------------
 # Test client
 # ------------------------------------------------------------------
 
+
 @pytest.fixture
 def client():
-    """
-    FastAPI TestClient with overridden DB dependency
-    """
     with TestClient(app) as c:
         yield c
