@@ -1,6 +1,11 @@
 from app.core.permissions import Permission
 
-ROLE_PERMISSIONS = {
+
+# ------------------------------------------------------------------
+# Role → Permissions mapping (RBAC)
+# ------------------------------------------------------------------
+
+ROLE_PERMISSIONS: dict[str, set[Permission]] = {
     "admin": {
         Permission.USERS_READ,
         Permission.USERS_WRITE,
@@ -14,5 +19,6 @@ ROLE_PERMISSIONS = {
     "user": {
         Permission.USERS_READ,
         Permission.ITEMS_READ,
+        Permission.ITEMS_WRITE,
     },
 }

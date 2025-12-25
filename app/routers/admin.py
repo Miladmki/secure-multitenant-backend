@@ -1,17 +1,18 @@
-# app/routers/admin.py
-
 from fastapi import APIRouter, Depends
 
-from app.core.deps import require_permission
-from app.core.permissions import Permissions
+from app.core.deps import get_current_user, require_permission
+from app.core.permissions import Permission
+from app.models.user import User
 
-router = APIRouter(prefix="/admin", tags=["admin"])
-
-
-@router.get(
-    "/dashboard",
-    status_code=200,
-    dependencies=[Depends(require_permission(Permissions.ADMIN_DASHBOARD_READ))],
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin"],
 )
-def admin_global_dashboard():
-    return {"msg": "Welcome admin"}
+
+
+@router.get("/dashboard")
+def admin_dashboard(
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(require_permission(Permission.ADMIN_DASHBOARD)),
+):
+    return {"msg": f"Welcome admin {current_user.email}"}

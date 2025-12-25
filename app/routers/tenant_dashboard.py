@@ -3,22 +3,20 @@
 from fastapi import APIRouter, Depends
 
 from app.core.deps import get_current_tenant, require_permission
-from app.core.permissions import Permissions
+from app.core.permissions import Permission
 
-from app.models.tenant import Tenant
-
-router = APIRouter(prefix="/tenants", tags=["tenants"])
+router = APIRouter(
+    prefix="/tenants",
+    tags=["tenants"],
+)
 
 
 @router.get(
     "/{tenant_id}/dashboard",
-    status_code=200,
-    dependencies=[Depends(require_permission(Permissions.TENANT_DASHBOARD_READ))],
+    dependencies=[
+        Depends(get_current_tenant),
+        Depends(require_permission(Permission.TENANT_ADMIN)),
+    ],
 )
-def tenant_admin_dashboard(
-    tenant: Tenant = Depends(get_current_tenant),
-):
-    return {
-        "msg": "Welcome admin",
-        "tenant": tenant.name,
-    }
+def tenant_dashboard():
+    return {"msg": "Tenant admin dashboard"}

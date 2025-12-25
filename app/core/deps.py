@@ -1,5 +1,3 @@
-# app/core/deps.py
-
 from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from jose import jwt, JWTError
@@ -11,10 +9,9 @@ from app.core.security import oauth2_scheme
 from app.models.user import User
 from app.models.tenant import Tenant
 
-from app.core.authorization import (
-    resolve_permission,
-    AuthorizationError,
-)
+from app.core.authorization import resolve_permission, AuthorizationError
+from app.core.permissions import Permission
+
 
 # =====================================================
 # AUTHENTICATION
@@ -25,9 +22,6 @@ def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    """
-    Resolve authenticated user from JWT access token.
-    """
     try:
         payload = jwt.decode(
             token,
@@ -57,7 +51,7 @@ def get_current_user(
 
 
 # =====================================================
-# TENANT CONTEXT
+# TENANT RESOLUTION
 # =====================================================
 
 
@@ -67,7 +61,8 @@ def get_current_tenant(
     db: Session = Depends(get_db),
 ) -> Tenant:
     """
-    Resolve tenant and enforce hard tenant isolation.
+    Tenant resolved from URL path.
+    HARD tenant isolation.
     """
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
@@ -76,7 +71,6 @@ def get_current_tenant(
             detail="Tenant not found",
         )
 
-    # 🔐 Hard tenant isolation (non-negotiable)
     if current_user.tenant_id != tenant.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -86,37 +80,84 @@ def get_current_tenant(
     return tenant
 
 
+def get_current_user_tenant(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Tenant:
+    """
+    Tenant resolved from authenticated user.
+    Used ONLY when tenant context is implicit.
+    """
+    if not current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has no tenant",
+        )
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        )
+
+    return tenant
+
+
 # =====================================================
-# AUTHORIZATION (PERMISSION-BASED, CENTRALIZED)
+# AUTHORIZATION (PERMISSION-BASED)
 # =====================================================
 
 
-def require_permission(permission: str):
+def require_permission(permission: Permission):
     """
     Centralized permission enforcement dependency.
 
-    Features:
-    - Role → permission mapping
-    - Permission scopes (wildcards supported)
-    - Policy-based authorization
-    - Tenant isolation
-    - Deny-by-default
+    - GLOBAL permissions → tenant=None
+    - TENANT permissions → tenant resolved automatically
     """
 
     def checker(
         request: Request,
         current_user: User = Depends(get_current_user),
-        tenant: Tenant = Depends(get_current_tenant),
+        db: Session = Depends(get_db),
     ) -> None:
-        # Optional: resource owner id for self-access policies
+        # ---------------------------------------------
+        # Resolve resource owner (optional)
+        # ---------------------------------------------
         resource_owner_id = None
-
         if "user_id" in request.path_params:
             try:
                 resource_owner_id = int(request.path_params["user_id"])
             except ValueError:
                 pass
 
+        # ---------------------------------------------
+        # Resolve tenant ONLY if required
+        # ---------------------------------------------
+        tenant: Tenant | None = None
+
+        if permission not in (Permission.ADMIN_DASHBOARD,):
+            # Tenant-scoped permission
+            if not current_user.tenant_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tenant context required",
+                )
+
+            tenant = (
+                db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+            )
+
+            if not tenant:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Tenant not found",
+                )
+
+        # ---------------------------------------------
+        # Authorization resolution
+        # ---------------------------------------------
         try:
             resolve_permission(
                 user=current_user,
@@ -131,51 +172,5 @@ def require_permission(permission: str):
             )
 
         return None
-
-    return checker
-
-
-# =====================================================
-# LEGACY ROLE-BASED CHECKS (DEPRECATED)
-# =====================================================
-
-
-def require_role(role_name: str):
-    """
-    ⚠️ DEPRECATED
-    Legacy role-based authorization.
-    Do NOT use in new code.
-    """
-
-    def checker(
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-        roles = {role.name for role in current_user.roles}
-        if role_name not in roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden",
-            )
-        return current_user
-
-    return checker
-
-
-def require_global_role(role_name: str):
-    """
-    ⚠️ DEPRECATED
-    Global role check (e.g. superadmin).
-    """
-
-    def checker(
-        current_user: User = Depends(get_current_user),
-    ) -> User:
-        roles = {role.name for role in current_user.roles}
-        if role_name not in roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Forbidden",
-            )
-        return current_user
 
     return checker

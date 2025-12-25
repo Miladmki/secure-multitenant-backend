@@ -1,25 +1,23 @@
-# app/routers/users.py
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_tenant, require_permission
-from app.core.permissions import Permissions
+from app.core.permissions import Permission
 
 from app.models.tenant import Tenant
 from app.services import user_service
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(
+    prefix="/users",
+    tags=["users"],
+)
 
 
-# -------------------------
-# List users in current tenant
-# -------------------------
 @router.get(
     "/",
     status_code=200,
-    dependencies=[Depends(require_permission(Permissions.USERS_READ))],
+    dependencies=[Depends(require_permission(Permission.USERS_READ))],
 )
 def list_users_endpoint(
     db: Session = Depends(get_db),
@@ -28,13 +26,10 @@ def list_users_endpoint(
     return user_service.list_users(db, tenant.id)
 
 
-# -------------------------
-# Update user in tenant
-# -------------------------
 @router.put(
     "/{user_id}",
     status_code=200,
-    dependencies=[Depends(require_permission(Permissions.USERS_UPDATE))],
+    dependencies=[Depends(require_permission(Permission.USERS_WRITE))],
 )
 def update_user_endpoint(
     user_id: int,
@@ -51,13 +46,10 @@ def update_user_endpoint(
     return updated
 
 
-# -------------------------
-# Delete user in tenant
-# -------------------------
 @router.delete(
     "/{user_id}",
     status_code=200,
-    dependencies=[Depends(require_permission(Permissions.USERS_DELETE))],
+    dependencies=[Depends(require_permission(Permission.USERS_DELETE))],
 )
 def delete_user_endpoint(
     user_id: int,

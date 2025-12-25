@@ -1,25 +1,58 @@
-from app.core.policies.base import Policy
-from app.core.permissions import Permission
-from app.core.role_permissions import ROLE_PERMISSIONS
-from app.models.user import User
-from app.models.tenant import Tenant
+# app/core/policies/tenant_policy.py
+
+from abc import ABC, abstractmethod
 
 
-class TenantPolicy(Policy):
+class BasePolicy(ABC):
+    """
+    Base class for all authorization policies.
+    Deny-by-default.
+    """
+
+    @abstractmethod
     def allows(
         self,
         *,
-        user: User,
-        tenant: Tenant,
-        permission: Permission,
+        user,
+        tenant,
+        resource_owner_id: int | None = None,
     ) -> bool:
-        # 🔐 Tenant isolation
-        if user.tenant_id != tenant.id:
+        return False
+
+
+class TenantIsolationPolicy(BasePolicy):
+    """
+    Enforces tenant isolation.
+    User must belong to the same tenant.
+    """
+
+    def allows(
+        self,
+        *,
+        user,
+        tenant,
+        resource_owner_id: int | None = None,
+    ) -> bool:
+        if not user or not tenant:
             return False
 
-        # Aggregate permissions from all roles
-        user_permissions = set()
-        for role in user.roles:
-            user_permissions |= ROLE_PERMISSIONS.get(role.name, set())
+        return user.tenant_id == tenant.id
 
-        return permission in user_permissions
+
+class SelfAccessPolicy(BasePolicy):
+    """
+    Allows access only to own resources.
+    Example: user can update/read only themselves.
+    """
+
+    def allows(
+        self,
+        *,
+        user,
+        tenant,
+        resource_owner_id: int | None = None,
+    ) -> bool:
+        if resource_owner_id is None:
+            return False
+
+        return user.id == resource_owner_id
