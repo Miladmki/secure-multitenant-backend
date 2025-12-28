@@ -24,7 +24,14 @@ def login_and_get_token(client, email, password):
     return response.json()["access_token"]
 
 
+def clear_audit_logs(db_session):
+    db_session.execute(text("DELETE FROM authorization_audit_logs"))
+    db_session.commit()
+
+
 def test_permission_denied_is_logged(client, db_session):
+    clear_audit_logs(db_session)
+
     token = login_and_get_token(
         client,
         email="user1@test.com",
@@ -49,7 +56,8 @@ def test_permission_denied_is_logged(client, db_session):
 
 
 def test_permission_allowed_is_logged(client, db_session):
-    # register admin user
+    clear_audit_logs(db_session)
+
     client.post(
         "/auth/register",
         json={
@@ -58,16 +66,13 @@ def test_permission_allowed_is_logged(client, db_session):
         },
     )
 
-    # get user id
     user_id = db_session.execute(
         text("SELECT id FROM users WHERE email = :email"),
         {"email": "admin@test.com"},
     ).scalar_one()
 
-    # get tenant id (default tenant is guaranteed by conftest)
     tenant_id = db_session.execute(text("SELECT id FROM tenants LIMIT 1")).scalar_one()
 
-    # create admin role with tenant_id
     db_session.execute(
         text(
             """
@@ -81,7 +86,6 @@ def test_permission_allowed_is_logged(client, db_session):
         },
     )
 
-    # attach role to user
     db_session.execute(
         text(
             """
@@ -97,7 +101,6 @@ def test_permission_allowed_is_logged(client, db_session):
 
     db_session.commit()
 
-    # login
     response = client.post(
         "/auth/login",
         json={
@@ -129,6 +132,8 @@ def test_audit_failure_does_not_break_authorization(
     db_session,
     monkeypatch,
 ):
+    clear_audit_logs(db_session)
+
     from app.services import audit_service
 
     def broken_logger(*args, **kwargs):

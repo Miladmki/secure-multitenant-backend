@@ -1,4 +1,5 @@
 # app/core/config.py
+
 import os
 from fastapi.security import OAuth2PasswordBearer
 from pydantic_settings import BaseSettings
@@ -7,8 +8,7 @@ from pydantic import ConfigDict
 
 class Settings(BaseSettings):
     model_config = ConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
+        extra="ignore",  # important for env safety
     )
 
     project_name: str = "Secure Multi-Tenant Backend"
@@ -23,9 +23,11 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
+    # === AUDIT SIGNING (SECURITY-GRADE) ===
+    audit_signing_key: str
+
     @property
     def effective_database_url(self) -> str:
-        # TEST / RUNTIME ENV HAS ABSOLUTE PRIORITY
         env_db = os.getenv("DATABASE_URL")
         if env_db:
             return env_db

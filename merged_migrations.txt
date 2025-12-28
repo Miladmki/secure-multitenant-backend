@@ -1,0 +1,483 @@
+
+
+# ===== MERGED FROM: alembic/versions/2025_12_22_1403-81652602a060_initial_schema.py =====
+
+"""initial schema
+
+Revision ID: 81652602a060
+Revises:
+Create Date: 2025-12-22 14:03:12.063523
+
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = "81652602a060"
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # Create tenants table
+    op.create_table(
+        "tenants",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(op.f("ix_tenants_id"), "tenants", ["id"], unique=False)
+    op.create_index(op.f("ix_tenants_name"), "tenants", ["name"], unique=True)
+
+    # Create roles table
+    op.create_table(
+        "roles",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("tenant_id", sa.Integer(), nullable=False),  # Fixed: NOT NULL
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "name", "tenant_id", name="uq_role_name_tenant"
+        ),  # Added unique constraint
+    )
+    op.create_index(op.f("ix_roles_id"), "roles", ["id"], unique=False)
+    op.create_index(op.f("ix_roles_name"), "roles", ["name"], unique=False)
+
+    # Create users table
+    op.create_table(
+        "users",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("email", sa.String(), nullable=False),
+        sa.Column("hashed_password", sa.String(), nullable=False),
+        sa.Column("tenant_id", sa.Integer(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "email", "tenant_id", name="uq_user_email_tenant"
+        ),  # Added unique constraint
+    )
+    op.create_index(
+        op.f("ix_users_email"), "users", ["email"], unique=False
+    )  # Fixed: NOT unique
+    op.create_index(op.f("ix_users_id"), "users", ["id"], unique=False)
+
+    # Create items table
+    op.create_table(
+        "items",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("description", sa.String(), nullable=True),
+        sa.Column("tenant_id", sa.Integer(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=True,
+        ),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("name", "tenant_id", name="uq_item_name_tenant"),
+    )
+    op.create_index(op.f("ix_items_id"), "items", ["id"], unique=False)
+    op.create_index(op.f("ix_items_name"), "items", ["name"], unique=False)
+
+    # Create refresh_tokens table
+    op.create_table(
+        "refresh_tokens",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("token", sa.String(), nullable=False),
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("tenant_id", sa.Integer(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
+            nullable=False,
+        ),
+        sa.Column("expires_at", sa.DateTime(), nullable=False),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index(
+        op.f("ix_refresh_tokens_id"), "refresh_tokens", ["id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_refresh_tokens_token"), "refresh_tokens", ["token"], unique=True
+    )
+
+    # Create user_roles association table
+    op.create_table(
+        "user_roles",
+        sa.Column("user_id", sa.Integer(), nullable=False),
+        sa.Column("role_id", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(["role_id"], ["roles.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("user_id", "role_id"),
+    )
+    op.create_index(
+        "ix_user_roles_user_role", "user_roles", ["user_id", "role_id"], unique=False
+    )
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.drop_index("ix_user_roles_user_role", table_name="user_roles")
+    op.drop_table("user_roles")
+    op.drop_index(op.f("ix_refresh_tokens_token"), table_name="refresh_tokens")
+    op.drop_index(op.f("ix_refresh_tokens_id"), table_name="refresh_tokens")
+    op.drop_table("refresh_tokens")
+    op.drop_index(op.f("ix_items_name"), table_name="items")
+    op.drop_index(op.f("ix_items_id"), table_name="items")
+    op.drop_table("items")
+    op.drop_index(op.f("ix_users_id"), table_name="users")
+    op.drop_index(op.f("ix_users_email"), table_name="users")
+    op.drop_table("users")
+    op.drop_index(op.f("ix_roles_name"), table_name="roles")
+    op.drop_index(op.f("ix_roles_id"), table_name="roles")
+    op.drop_table("roles")
+    op.drop_index(op.f("ix_tenants_name"), table_name="tenants")
+    op.drop_index(op.f("ix_tenants_id"), table_name="tenants")
+    op.drop_table("tenants")
+
+
+# ===== MERGED FROM: alembic/versions/2025_12_25_1721-5d577185ad5f_add_audit_logs.py =====
+
+"""add audit logs
+
+Revision ID: 5d577185ad5f
+Revises: 81652602a060
+Create Date: 2025-12-25 17:21:41.762369
+
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = "5d577185ad5f"
+down_revision: Union[str, Sequence[str], None] = "81652602a060"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade():
+    op.create_table(
+        "audit_logs",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("user_id", sa.Integer(), nullable=True),
+        sa.Column("tenant_id", sa.Integer(), nullable=True),
+        sa.Column("action", sa.String(), nullable=False),
+        sa.Column("resource", sa.String(), nullable=False),
+        sa.Column("allowed", sa.Boolean(), nullable=False),
+        sa.Column("reason", sa.String(), nullable=True),
+        sa.Column("metadata", sa.JSON(), nullable=True),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
+    )
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    pass
+
+
+# ===== MERGED FROM: alembic/versions/2025_12_25_1907-b3d4ee92f34b_make_authorization_audit_logs_immutable.py =====
+
+"""make authorization audit logs immutable
+
+Revision ID: b3d4ee92f34b
+Revises: 5d577185ad5f
+Create Date: 2025-12-25 19:07:39.020885
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = "b3d4ee92f34b"
+down_revision: Union[str, Sequence[str], None] = "5d577185ad5f"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+IMMUTABLE_FUNCTION_NAME = "prevent_authorization_audit_log_mutation"
+IMMUTABLE_TRIGGER_NAME = "authorization_audit_logs_immutable_trigger"
+TABLE_NAME = "authorization_audit_logs"
+
+
+def upgrade() -> None:
+    """
+    Enforce immutability at database level.
+
+    Rules:
+    - INSERT is allowed
+    - UPDATE is forbidden
+    - DELETE is forbidden
+    """
+
+    # 1. Create trigger function
+    op.execute(
+        f"""
+        CREATE OR REPLACE FUNCTION {IMMUTABLE_FUNCTION_NAME}()
+        RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION 'authorization_audit_logs are immutable';
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+
+    # 2. Attach trigger to table (UPDATE, DELETE)
+    op.execute(
+        f"""
+        CREATE TRIGGER {IMMUTABLE_TRIGGER_NAME}
+        BEFORE UPDATE OR DELETE ON {TABLE_NAME}
+        FOR EACH ROW
+        EXECUTE FUNCTION {IMMUTABLE_FUNCTION_NAME}();
+        """
+    )
+
+
+def downgrade() -> None:
+    """
+    Remove immutability enforcement.
+
+    NOTE:
+    Downgrade exists for completeness only.
+    In production systems, downgrading audit immutability is NOT recommended.
+    """
+
+    op.execute(
+        f"""
+        DROP TRIGGER IF EXISTS {IMMUTABLE_TRIGGER_NAME}
+        ON {TABLE_NAME};
+        """
+    )
+
+    op.execute(
+        f"""
+        DROP FUNCTION IF EXISTS {IMMUTABLE_FUNCTION_NAME}();
+        """
+    )
+
+
+# ===== MERGED FROM: alembic/versions/2025_12_25_1921-e596d51fc4cb_make_authorization_audit_logs_immutable.py =====
+
+"""make authorization audit logs immutable
+
+Revision ID: e596d51fc4cb
+Revises: b3d4ee92f34b
+Create Date: 2025-12-25 19:21:19.473846
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = "e596d51fc4cb"
+down_revision: Union[str, Sequence[str], None] = "b3d4ee92f34b"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    # ------------------------------------------------------------------
+    # 1) Add cryptographic integrity columns
+    # ------------------------------------------------------------------
+
+    op.add_column(
+        "authorization_audit_logs",
+        sa.Column("signature", sa.String(length=64), nullable=False),
+    )
+
+    op.add_column(
+        "authorization_audit_logs",
+        sa.Column("prev_hash", sa.String(length=64), nullable=True),
+    )
+
+    op.add_column(
+        "authorization_audit_logs",
+        sa.Column("entry_hash", sa.String(length=64), nullable=False),
+    )
+
+    op.add_column(
+        "authorization_audit_logs",
+        sa.Column(
+            "integrity_ok",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.true(),
+        ),
+    )
+
+    # ------------------------------------------------------------------
+    # 2) Enforce append-only immutability at DB level (PostgreSQL)
+    # ------------------------------------------------------------------
+
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION prevent_authorization_audit_log_modification()
+        RETURNS trigger AS $$
+        BEGIN
+            RAISE EXCEPTION
+                'authorization_audit_logs are immutable (append-only security audit log)';
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TRIGGER trg_auth_audit_no_update
+        BEFORE UPDATE ON authorization_audit_logs
+        FOR EACH ROW
+        EXECUTE FUNCTION prevent_authorization_audit_log_modification();
+        """
+    )
+
+    op.execute(
+        """
+        CREATE TRIGGER trg_auth_audit_no_delete
+        BEFORE DELETE ON authorization_audit_logs
+        FOR EACH ROW
+        EXECUTE FUNCTION prevent_authorization_audit_log_modification();
+        """
+    )
+
+
+def downgrade() -> None:
+    # ------------------------------------------------------------------
+    # Remove immutability enforcement
+    # ------------------------------------------------------------------
+
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_auth_audit_no_update ON authorization_audit_logs;"
+    )
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_auth_audit_no_delete ON authorization_audit_logs;"
+    )
+    op.execute("DROP FUNCTION IF EXISTS prevent_authorization_audit_log_modification;")
+
+    # ------------------------------------------------------------------
+    # Remove cryptographic columns
+    # ------------------------------------------------------------------
+
+    op.drop_column("authorization_audit_logs", "integrity_ok")
+    op.drop_column("authorization_audit_logs", "entry_hash")
+    op.drop_column("authorization_audit_logs", "prev_hash")
+    op.drop_column("authorization_audit_logs", "signature")
+
+
+# ===== MERGED FROM: alembic/versions/2025_12_25_1930-72aa8ef6d64c_create_authorization_audit_logs_table.py =====
+
+"""create authorization audit logs table
+
+Revision ID: 72aa8ef6d64c
+Revises: 5d577185ad5f
+Create Date: 2025-12-25 19:30:57.595035
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+revision: str = "72aa8ef6d64c"
+down_revision: Union[str, Sequence[str], None] = "5d577185ad5f"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "authorization_audit_logs",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        # Actor context
+        sa.Column("user_id", sa.Integer(), nullable=True, index=True),
+        sa.Column("tenant_id", sa.Integer(), nullable=True, index=True),
+        # Authorization decision
+        sa.Column("permission", sa.String(length=100), nullable=False),
+        sa.Column("allowed", sa.Boolean(), nullable=False),
+        sa.Column("reason", sa.Text(), nullable=True),
+        # Request context
+        sa.Column("endpoint", sa.String(length=255), nullable=True),
+        sa.Column("method", sa.String(length=10), nullable=True),
+        # Canonical context
+        sa.Column("context", sa.Text(), nullable=True),
+        # Cryptographic integrity
+        sa.Column("previous_record_hash", sa.String(length=64), nullable=True),
+        sa.Column("record_hash", sa.String(length=64), nullable=False),
+        sa.Column(
+            "integrity_ok", sa.Boolean(), nullable=False, server_default=sa.true()
+        ),
+        # Timestamp
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+    )
+
+    op.create_index(
+        "ix_auth_audit_user_tenant_time",
+        "authorization_audit_logs",
+        ["user_id", "tenant_id", "created_at"],
+    )
+
+    op.create_index(
+        "ix_auth_audit_tenant_time",
+        "authorization_audit_logs",
+        ["tenant_id", "created_at"],
+    )
+
+
+def downgrade() -> None:
+    op.drop_index("ix_auth_audit_tenant_time", table_name="authorization_audit_logs")
+    op.drop_index(
+        "ix_auth_audit_user_tenant_time", table_name="authorization_audit_logs"
+    )
+    op.drop_table("authorization_audit_logs")

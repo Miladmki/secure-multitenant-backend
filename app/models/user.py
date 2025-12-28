@@ -7,6 +7,8 @@ from sqlalchemy import (
     DateTime,
     text,
 )
+from sqlalchemy.sql import expression
+
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -20,7 +22,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
 
-    is_active = Column(Boolean, nullable=False, server_default=text("1"))
+    is_active = Column(Boolean, nullable=False, server_default=expression.true())
 
     tenant_id = Column(
         Integer,

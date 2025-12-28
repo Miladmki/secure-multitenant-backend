@@ -1,51 +1,73 @@
-# tests/conftest.py
-
 import os
 import shutil
 import pytest
+from dotenv import load_dotenv
+from sqlalchemy.orm import sessionmaker
+from fastapi.testclient import TestClient
 
 # ------------------------------------------------------------------
-# Test database configuration
+# Load test environment BEFORE importing app
 # ------------------------------------------------------------------
 
 BASE_DIR = os.path.dirname(__file__)
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+
+load_dotenv(os.path.join(PROJECT_ROOT, ".env.test"), override=True)
+
+assert os.getenv("ENVIRONMENT") == "test"
+assert os.getenv("SECRET_KEY")
+assert os.getenv("AUDIT_SIGNING_KEY")
+
+# ------------------------------------------------------------------
+# Test database path
+# ------------------------------------------------------------------
+
 TMP_DIR = os.path.join(BASE_DIR, ".tmp_test")
 TEST_DB_PATH = os.path.join(TMP_DIR, "test.db")
-TEST_DB_URL = f"sqlite:///{TEST_DB_PATH}"
 
-# CRITICAL: must be set before importing app/db
-os.environ["DATABASE_URL"] = TEST_DB_URL
+os.makedirs(TMP_DIR, exist_ok=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 # ------------------------------------------------------------------
-# Imports AFTER DATABASE_URL is set
+# Imports AFTER env is fully loaded
 # ------------------------------------------------------------------
-
-from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.database import get_db, SessionLocal, Base, engine
+from app.core.database import get_db, Base, engine
 from app.models.tenant import Tenant
 
 # ------------------------------------------------------------------
-# Session-level DB setup / teardown
+# Test session factory
+# ------------------------------------------------------------------
+
+TestingSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
+
+# ------------------------------------------------------------------
+# Full lifecycle: schema + engine + filesystem
 # ------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session", autouse=True)
-def setup_test_db():
-    os.makedirs(TMP_DIR, exist_ok=True)
+def test_database_lifecycle():
+    Base.metadata.create_all(bind=engine)
     yield
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
     shutil.rmtree(TMP_DIR, ignore_errors=True)
 
 
 # ------------------------------------------------------------------
-# Raw DB session fixture
+# Database session per test
 # ------------------------------------------------------------------
 
 
 @pytest.fixture
 def db_session():
-    db = SessionLocal()
+    db = TestingSessionLocal()
     try:
         yield db
     finally:
@@ -54,21 +76,12 @@ def db_session():
 
 
 # ------------------------------------------------------------------
-# Dependency override (CRITICAL)
+# Dependency override
 # ------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
 def override_db(db_session):
-    """
-    - Drop & recreate schema per test
-    - Ensure FastAPI and tests share the SAME session
-    """
-
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-    # ensure default tenant
     if not db_session.query(Tenant).first():
         db_session.add(Tenant(name="default"))
         db_session.commit()
