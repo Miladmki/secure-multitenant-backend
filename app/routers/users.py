@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_tenant, require_permission
 from app.core.permissions import Permission
-
 from app.models.tenant import Tenant
 from app.services import user_service
 

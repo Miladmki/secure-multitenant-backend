@@ -18,6 +18,13 @@ def get_user_by_id(db: Session, user_id: int, tenant_id: int) -> User | None:
     )
 
 
+def get_user_by_email(db: Session, email: str) -> User | None:
+    """
+    گرفتن کاربر بر اساس ایمیل
+    """
+    return db.query(User).filter(User.email == email).first()
+
+
 def create_user(db: Session, email: str, hashed_password: str, tenant_id: int) -> User:
     """
     ایجاد کاربر جدید در tenant مشخص

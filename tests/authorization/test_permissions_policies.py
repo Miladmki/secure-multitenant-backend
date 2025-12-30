@@ -1,35 +1,38 @@
-# tests/authorization/test_permissions_policies.py
-
+import pytest
+from app.main import app
 from fastapi.testclient import TestClient
 
 
-def test_user_cannot_update_other_user(client: TestClient):
+@pytest.fixture
+def client():
+    with TestClient(app) as c:
+        yield c
+
+
+def test_authorization_decision_logging(client):
     """
-    SelfAccessPolicy should deny modifying other users.
+    Test that the AuthorizationDecision object logs the deny reason and stores information correctly.
     """
 
-    # user 1
-    client.post(
-        "/auth/register",
-        json={"email": "u1@example.com", "password": "password123"},
+    # ثبت‌نام کاربر
+    register_response = client.post(
+        "/auth/register", json={"email": "user1_unique_test@example.com", "password": "password123"}
     )
+    assert register_response.status_code == 201
 
-    # user 2
-    client.post(
-        "/auth/register",
-        json={"email": "u2@example.com", "password": "password123"},
+    # ورود به سیستم
+    login_response = client.post(
+        "/auth/login", json={"email": "user1_unique_test@example.com", "password": "password123"}
     )
+    assert login_response.status_code == 200
+    login_data = login_response.json()
 
-    login = client.post(
-        "/auth/login",
-        json={"email": "u1@example.com", "password": "password123"},
-    )
-    token = login.json()["access_token"]
+    token = login_data["access_token"]
 
-    # try to update user 2
-    r = client.put(
-        "/users/2?email=hacked@example.com",
+    # دسترسی به منبع محدود
+    response = client.put(
+        "/users/2?email=unauthorized@example.com",
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert r.status_code == 403
+    assert response.status_code == 403

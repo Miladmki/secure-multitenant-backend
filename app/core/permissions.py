@@ -17,3 +17,7 @@ class Permission(str, Enum):
 
     # Admin
     ADMIN_DASHBOARD = "admin:dashboard"
+
+    # Permissions with wildcards
+    USERS_ALL = "users:*"  # A wildcard permission to cover all user-related actions
+    ITEMS_ALL = "items:*"  # A wildcard permission to cover all item-related actions

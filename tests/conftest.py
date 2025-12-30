@@ -4,6 +4,9 @@ import pytest
 from dotenv import load_dotenv
 from sqlalchemy.orm import sessionmaker
 from fastapi.testclient import TestClient
+from app.main import app
+from app.core.database import get_db, Base, engine
+from app.models.tenant import Tenant
 
 # ------------------------------------------------------------------
 # Load test environment BEFORE importing app
@@ -12,6 +15,7 @@ from fastapi.testclient import TestClient
 BASE_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 
+# بارگذاری تنظیمات محیطی فایل .env.test
 load_dotenv(os.path.join(PROJECT_ROOT, ".env.test"), override=True)
 
 assert os.getenv("ENVIRONMENT") == "test"
@@ -26,7 +30,10 @@ TMP_DIR = os.path.join(BASE_DIR, ".tmp_test")
 TEST_DB_PATH = os.path.join(TMP_DIR, "test.db")
 
 os.makedirs(TMP_DIR, exist_ok=True)
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
+
+# اگر DATABASE_URL در .env.test تنظیم نشده باشد، از SQLite استفاده می‌کنیم
+database_url = os.getenv("DATABASE_URL", f"sqlite:///{TEST_DB_PATH}")
+os.environ["DATABASE_URL"] = database_url
 
 # ------------------------------------------------------------------
 # Imports AFTER env is fully loaded
