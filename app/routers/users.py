@@ -43,22 +43,3 @@ def update_user_endpoint(
             detail="Forbidden",
         )
     return updated
-
-
-@router.delete(
-    "/{user_id}",
-    status_code=200,
-    dependencies=[Depends(require_permission(Permission.USERS_DELETE))],
-)
-def delete_user_endpoint(
-    user_id: int,
-    db: Session = Depends(get_db),
-    tenant: Tenant = Depends(get_current_tenant),
-):
-    ok = user_service.delete_user(db, user_id, tenant.id)
-    if not ok:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden",
-        )
-    return {"msg": "User deleted"}

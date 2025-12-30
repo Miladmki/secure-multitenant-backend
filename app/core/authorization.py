@@ -4,12 +4,11 @@ from app.core.role_permissions import ROLE_PERMISSIONS
 from app.core.policies.tenant_policy import TenantIsolationPolicy, SelfAccessPolicy
 from app.models.user import User
 from app.models.tenant import Tenant
+from dataclasses import dataclass
 
 
 # ------------------------------------------------------------------
 # Policy registry: permission → list[policy]
-# - Empty list = GLOBAL permission (RBAC only)
-# - Missing key = MISCONFIGURATION (deny)
 # ------------------------------------------------------------------
 
 POLICY_REGISTRY: dict[Permission, list] = {
@@ -43,6 +42,7 @@ POLICY_REGISTRY: dict[Permission, list] = {
 # Errors
 # ------------------------------------------------------------------
 
+
 class AuthorizationError(Exception):
     """
     Raised when authorization fails.
@@ -59,6 +59,7 @@ class AuthorizationError(Exception):
 # Permission matching (supports wildcard)
 # ------------------------------------------------------------------
 
+
 def permission_matches(granted: Permission, required: Permission) -> bool:
     """
     Match permissions exactly or via wildcard.
@@ -74,6 +75,7 @@ def permission_matches(granted: Permission, required: Permission) -> bool:
 # Central Authorization Resolver (ENGINE)
 # ------------------------------------------------------------------
 
+
 def apply_policy_precedence(policies: List) -> List:
     """
     Organize policies based on precedence (priority) and return ordered policies.
@@ -84,6 +86,16 @@ def apply_policy_precedence(policies: List) -> List:
         reverse=True,
     )
     return ordered_policies
+
+
+@dataclass
+class AuthorizationDecision:
+    user_id: int | None
+    tenant_id: int | None
+    permission: str
+    allowed: bool
+    reason: str | None = None
+
 
 def resolve_permission(
     *,
@@ -100,7 +112,6 @@ def resolve_permission(
     2. Permission match
     3. Policy enforcement (ABAC)
     """
-    # 1️⃣ Aggregate permissions from ALL user roles
     granted_permissions: set[Permission] = set()
     for role in user.roles:
         granted_permissions |= ROLE_PERMISSIONS.get(role.name, set())
@@ -111,14 +122,12 @@ def resolve_permission(
             context={"user_id": user.id},
         )
 
-    # 2️⃣ RBAC permission check
     if not any(permission_matches(p, permission) for p in granted_permissions):
         raise AuthorizationError(
             reason="permission_denied",
             context={"user_id": user.id, "permission": permission.value},
         )
 
-    # 3️⃣ Policy enforcement (ABAC)
     if permission not in POLICY_REGISTRY:
         raise AuthorizationError(
             reason="permission_not_registered",
@@ -134,12 +143,23 @@ def resolve_permission(
             context={"permission": permission.value},
         )
 
+    # Create an AuthorizationDecision object for logging purposes
+    decision = AuthorizationDecision(
+        user_id=user.id,
+        tenant_id=tenant.id,
+        permission=permission.value,
+        allowed=True,  # Initially allowed, may be modified later
+        reason="Access granted",  # Default reason if allowed
+    )
+
     for policy in policies:
         allowed = policy.allows(
             user=user, tenant=tenant, resource_owner_id=resource_owner_id
         )
 
         if not allowed:
+            decision.allowed = False
+            decision.reason = f"Policy {policy.__class__.__name__} denied access"
             raise AuthorizationError(
                 reason="policy_denied",
                 context={
@@ -150,4 +170,8 @@ def resolve_permission(
                 },
             )
 
-    return None
+    # If allowed, log the decision
+    if decision.allowed:
+        decision.reason = "Access granted"
+
+    return decision

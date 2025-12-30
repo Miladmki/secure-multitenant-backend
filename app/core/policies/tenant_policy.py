@@ -1,5 +1,3 @@
-# app/core/policies/tenant_policy.py
-
 from abc import ABC, abstractmethod
 
 
